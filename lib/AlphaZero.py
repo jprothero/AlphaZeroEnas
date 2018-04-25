@@ -61,6 +61,11 @@ class AlphaZero:
 
         return idx, visits
 
+    #so we can mask the policy before we get in, and it'll be correct
+    #then we also pass 
+
+    #we should try to calculate as muchas possible outside this class
+    #so lets try to only pass what we need
     def expand(self, policy):
         self.curr_node["children"] = []
 

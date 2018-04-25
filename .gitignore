@@ -5,3 +5,4 @@ fastai/
 .vscode/
 .ipynb_checkpoints/
 __pycache__/
+alts/

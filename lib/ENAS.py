@@ -124,19 +124,41 @@ class SimpleENAS(nn.Module):
             "skips": self.skips
         }
 
+        total_embeddings = 0
+        for _, lst in self.decisions.items():
+            total_embeddings += len(lst)
+
+        #specify the order of the decisions
+        #one offs should probably be first
         self.decision_list = [
             "filters"
             , "groups"
-            , "emb_merge1"
-            , "kernels"
-            , "emb_merge2"            
-            , "dilations"
-            , "emb_merge3"                        
-            , "activations"
-            , "emb_merge4"                                    
-            , "strides"
             , "skips"
+            , "kernels"
+            , "dilations"
+            , "activations"
+            , "strides"
         ]
+
+        #maybe want to have a layer embedding
+        #so each layer has a unique embedding
+        #we dont necessarily need to because we are doing a weighted mix of all previous ones
+        #if we always use a layer embedding for that we wont have to except 
+        #on filters, we can just always do some combination of the previous options
+        #why not I guess
+
+        #so we need a smarter way to integrate the embedding merges
+        #basically we need one additional softmax
+        #and the additional softmax can be separate for simplicity, i.e. an
+        #embedding merge softmax
+
+        self.embedding_merge_softmax = nn.Sequential(*[
+                LayerNorm(lstm_size),
+                nn.Linear(lstm_size, total_embeddings + num_layers), 
+                nn.Softmax(dim=1)
+            ])
+
+        #and additional layer embeddings (optional)
 
         def skip_condition(layer_idx):
             #skip when layer index = 0 (no skip options)
@@ -154,28 +176,6 @@ class SimpleENAS(nn.Module):
             else:
                 return False
 
-        def embedding_merge_condition(layer_idx):
-            #sooo we only want to do embedding merges in certain conditions right?
-            #basically if d > 1 or something we should allow embedding merges, because it would
-            #be a valid choice
-
-            #oh I just realized injecting these decisions agnostic of the order might be bad...
-            #can we do it though? basically we can 
-            #right now we use d to determine the decision idx and stuff
-            #well the issue is that we need 
-            #basically to do this painlessly we need to manually add 
-            #the embedding merges as decisions
-            #which is fine, and probably we wont need the condition then
-
-            #this is hard to imagine, lets step through it
-            #d=0, choose out_filters
-            #d=1, choose embeddings merge, doesnt work because we 
-            #only do one filters choice then skip future ones
-            if layer_idx == 0:
-                return True
-            else:
-                return False
-
         self.decision_conditions = dict()
 
         for name in self.decision_list:
@@ -184,7 +184,23 @@ class SimpleENAS(nn.Module):
             elif name is "filters":
                 self.decision_conditions[name] = filter_condition
             else:
-                self.decision_conditions[name] = None
+                self.decision_conditions[name] = lambda x: True
+
+        self.mask_conditions = dict()
+
+        def skip_mask(layer_idx, probas):
+            #so zero out the probas for all layers after the current one
+            #so for example lets say we're on layer 2
+            #we want to zero out the probability for 2-the end
+            #that means we would want layer_idx-1 actually so we include 2
+            probas[layer_idx-1:] *= 0
+            return probas
+
+        for name in self.decision_list:
+            if name is "skips":
+                self.mask_conditions[name] = skip_mask
+            else:
+                self.mask_conditions[name] = None
 
         # def filters_condition():
         #     if self.filters_times_used is None:
@@ -195,6 +211,8 @@ class SimpleENAS(nn.Module):
         # def skips_condition():
         # self.conditions = [None for _ in range(len(self.decision_list))]
         # self.conditions[0] = lambda x: 
+
+        #so lets see.. we could 
 
         self.starting_indices = []
 
@@ -218,6 +236,19 @@ class SimpleENAS(nn.Module):
             self.starting_indices.append(starting_idx)
             starting_idx += len(options)
 
+        #they can be accessed with len(embeddings) - num_layers - layer_idx
+        #add an additional num_layers worth of embeddings
+        embeddings.extend([nn.Parameter(torch.rand(lstm_size)-.5) for
+                _ in range(num_layers)])
+
+        #so how can we get these layer embeddings.
+        #the start index would be len(embeddings) - num_layers - layer_idx
+        #ugh just realized the emb merge thing 
+        #mmmm 
+        #sigh, idk this is hard to fix. I just have to change so much stuff to get this working
+        #and it's hard to maintain simplicity
+        #it would be better if we could keep things the same 
+
         self.softmaxs = nn.ModuleList(softmaxs)
         self.embeddings = nn.ParameterList(embeddings)
 
@@ -225,16 +256,38 @@ class SimpleENAS(nn.Module):
         if az.curr_node["d"] == az.max_depth-1:
             return
 
+        #so lets see, during the expand we are ignoring creating children
+        #where the condition results in false
+        #then the select should effectively ignore it
+        #so I think we just need to modify the expand
         cont_out, decision_idx = az.select(self.starting_indices, self.decision_list,
             self.embeddings, self.controller, cont_out)
 
-        probas = self.softmaxs[decision_idx](cont_out).squeeze()
-        probas_np = probas.detach().data.numpy()
-        az.expand(probas_np)
+        depth = az.curr_node["d"]
+        layer_idx = depth // self.num_layers
+        decision_idx = depth % len(self.decision_list)
+        decision_name = self.decision_list[decision_idx]
+        condition = self.decision_conditions[decision_name]
 
-        value = self.value_head(cont_out.squeeze())
-        value = value.detach().data.numpy()
-        az.backup(value)
+        #so lets see... for skips for example we want to mask certain things, right?
+        #we want to mask all layers > the current layer_idx
+
+        #so a natural thing would be that we maybe have mask conditions too
+
+        #if true proceed like normal
+        if condition(layer_idx):
+            probas = self.softmaxs[decision_idx](cont_out).squeeze()
+            probas_np = probas.detach().data.numpy()
+
+            if self.mask_conditions[decision_name] is not None:
+                probas_np = self.mask_conditions[decision_name](layer_idx, probas_np)
+
+            az.expand(probas_np, self.decision_conditions, self.decision_list)
+
+            value = self.value_head(cont_out.squeeze())
+            value = value.detach().data.numpy()
+            az.backup(value)
+        #else we continue on to the next simulation
 
     #so lets see.. we want the memories to be in a format which is easy for 
     #the net to train on

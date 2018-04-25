@@ -43,6 +43,9 @@ class AlphaZero:
         if self.T != 0:
             visits_sum = (1.0 * visits.sum())
 
+            if visits_sum == 0:
+                set_trace()
+
             assert visits_sum != 0
             
             # if visits_sum == 0 and self.curr_node["d"] == self.max_depth-1:
@@ -69,7 +72,7 @@ class AlphaZero:
 
     #we should try to calculate as muchas possible outside this class
     #so lets try to only pass what we need
-    def expand(self, policy):
+    def expand(self, policy, d_plus):
         self.curr_node["children"] = []
 
         if self.curr_node["parent"] is None:
@@ -82,7 +85,7 @@ class AlphaZero:
                 "Q": 0,
                 "U": p,
                 "P": p,
-                "d": self.curr_node["d"]+1,
+                "d": self.curr_node["d"]+d_plus,
                 "children": None,
                 "parent": self.curr_node
             }
@@ -91,24 +94,32 @@ class AlphaZero:
 
         return self.curr_node
 
+    def update_uct(self):
+        self.curr_node["max_uct"] = -1
+        self.curr_node["max_uct_idx"] = -1
+        for i, child in enumerate(self.curr_node["children"]):
+            child["U"] = self.c*child["P"] * \
+                (1 + np.log(self.curr_node["N"])/(1 + child["N"]))
+            child["UCT"] = child["Q"] + child["U"]
+            if child["UCT"] > self.curr_node["max_uct"]:
+                self.curr_node["max_uct"] = child["UCT"]
+                self.curr_node["max_uct_idx"] = i
+
     def backup(self, value):
         value += 1
         value *= .5
+        #oh so the issue is that for the first one we skip it totally
         while self.curr_node["parent"] is not None:
             self.update_node(value)
+
+            self.update_uct()
+            
             self.curr_node = self.curr_node["parent"]
-            self.curr_node["max_uct"] = -1
-            self.curr_node["max_uct_idx"] = -1
-            for i, child in enumerate(self.curr_node["children"]):
-                child["U"] = self.c*child["P"] * \
-                    (1 + np.log(self.curr_node["N"])/(1 + child["N"]))
-                child["UCT"] = child["Q"] + child["U"]
-                if child["UCT"] > self.curr_node["max_uct"]:
-                    self.curr_node["max_uct"] = child["UCT"]
-                    self.curr_node["max_uct_idx"] = i
 
         #update root visits
         self.curr_node["N"] += 1
+
+        self.update_uct()        
 
     def update_node(self, value):
         self.curr_node["N"] += 1
@@ -116,7 +127,7 @@ class AlphaZero:
         self.curr_node["Q"] = self.curr_node["W"]/self.curr_node["N"]
 
     def add_dirichlet_noise(self, policy):
-        nu = np.random.dirichlet([self.alpha] * len(self.curr_node["children"]))
+        nu = np.random.dirichlet([self.alpha] * len(policy))
         policy = policy*(1-self.epsilon) + nu*self.epsilon
 
         return policy

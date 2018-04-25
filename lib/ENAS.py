@@ -1,13 +1,11 @@
 import torch.nn as nn
 from .qrnn import QRNN
-from . import FLAGS
 from torch.nn import functional as F
 from torch.distributions import Categorical
 import torch
 import numpy as np
 from torch.autograd import Variable
 from ipdb import set_trace
-from .CreateChild import build_model
 from .AlphaZero import AlphaZero
 from random import sample
 
@@ -41,10 +39,10 @@ class FastaiWrapper():
     def get_layer_groups(self, precompute=False):
         return self.model
 
-class SimpleENAS(nn.Module):
+class ENAS(nn.Module):
     def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=4, lstm_size=70, 
             num_lstm_layers=4, value_head_dims=64):
-        super(SimpleENAS, self).__init__()
+        super(ENAS, self).__init__()
         self.num_classes = num_classes
         self.R = R
         self.C = C
@@ -128,8 +126,6 @@ class SimpleENAS(nn.Module):
         for _, lst in self.decisions.items():
             total_embeddings += len(lst)
 
-        #specify the order of the decisions
-        #one offs should probably be first
         self.decision_list = [
             "filters"
             , "groups"
@@ -140,48 +136,24 @@ class SimpleENAS(nn.Module):
             , "strides"
         ]
 
-        #maybe want to have a layer embedding
-        #so each layer has a unique embedding
-        #we dont necessarily need to because we are doing a weighted mix of all previous ones
-        #if we always use a layer embedding for that we wont have to except 
-        #on filters, we can just always do some combination of the previous options
-        #why not I guess
-
-        #so we need a smarter way to integrate the embedding merges
-        #basically we need one additional softmax
-        #and the additional softmax can be separate for simplicity, i.e. an
-        #embedding merge softmax
-
         self.total_embeddings = total_embeddings + num_layers
-
-        # self.embedding_merge_softmax = nn.Sequential(*[
-        #         LayerNorm(lstm_size),
-        #         nn.Linear(lstm_size, self.total_embeddings), 
-        #         nn.Softmax(dim=1)
-        #     ])
 
         self.emb_merge_pre_softmax = nn.Sequential(*[
                 LayerNorm(lstm_size),
                 nn.Linear(lstm_size, self.total_embeddings), 
             ])
 
-        #and additional layer embeddings (optional)
-
         def skip_condition(layer_idx):
-            #skip when layer index = 0 (no skip options)
-            #or when layer_idx = 1 (only 1 option, doesnt make sense)
-            #true means normal, false means skip this decision
             if layer_idx > 1:
-                return True
-            else:
                 return False
+            else:
+                return True
 
         def filter_condition(layer_idx):
-            #only do one filters choice then skip future ones
             if layer_idx == 0:
-                return True
-            else:
                 return False
+            else:
+                return True
 
         self.decision_conditions = dict()
 
@@ -191,7 +163,7 @@ class SimpleENAS(nn.Module):
             elif name is "filters":
                 self.decision_conditions[name] = filter_condition
             else:
-                self.decision_conditions[name] = lambda x: True
+                self.decision_conditions[name] = lambda x: False
 
         self.mask_conditions = dict()
 
@@ -225,29 +197,15 @@ class SimpleENAS(nn.Module):
             self.starting_indices.append(starting_idx)
             starting_idx += len(options)
 
-        #they can be accessed with len(embeddings) - num_layers - layer_idx
-        #add an additional num_layers worth of embeddings
         embeddings.extend([nn.Parameter(torch.rand(lstm_size)-.5) for
                 _ in range(num_layers)])
-
-        #so how can we get these layer embeddings.
-        #the start index would be len(embeddings) - num_layers - layer_idx
-        #ugh just realized the emb merge thing 
-        #mmmm 
-        #sigh, idk this is hard to fix. I just have to change so much stuff to get this working
-        #and it's hard to maintain simplicity
-        #it would be better if we could keep things the same 
 
         self.softmaxs = nn.ModuleList(softmaxs)
         self.embeddings = nn.ParameterList(embeddings)
 
-    def check_condition(self, az):
-        depth = az.curr_node["d"]
-        layer_idx = depth // self.num_layers
-        decision_idx = depth % len(self.decision_list)
-        decision_name = self.decision_list[decision_idx]
+    def check_condition(self, az, layer_idx, decision_name):
         condition = self.decision_conditions[decision_name]
-        return condition(layer_idx), decision_name, decision_idx, layer_idx
+        return condition(layer_idx)
 
     def cont_out_from_trajectory(self, trajectory, decision_name):
         indices = []
@@ -259,31 +217,36 @@ class SimpleENAS(nn.Module):
             try:
                 seen[emb_idx]
             except:
-                seen[emb_idx] = False
+                seen[emb_idx] = True
 
-            if not seen[emb_idx]:
                 try:
                     weights[emb_idx] += scaled_one
                 except:
-                    weights[emb_idx] = 0
+                    weights[emb_idx] = scaled_one
 
                 indices.append(emb_idx)
         
         logits = []
         embeddings = []
         for _, idx in enumerate(indices):
-            embeddings.append(self.embeddings[idx])
-            logits = self.emb_merge_pre_softmax(self.embeddings[idx])
+            embeddings.append(self.embeddings[idx].unsqueeze(0))
+            logits.append(self.emb_merge_pre_softmax(self.embeddings[idx])[indices].unsqueeze(0))
 
         logits = torch.cat(logits)
+        logits = logits.sum(1)
         probas = F.softmax(logits)
-        final_emb = 0
-        for p, idx, emb in zip(probas, indices, embeddings):
-            final_emb += emb*p*weights[idx]
-        final_emb = final_emb.view(1, 1, -1)
-        set_trace()
 
-        cont_out = self.controller(final_emb)
+        for proba, idx in zip(probas, indices):
+            proba = proba*weights[idx]
+
+        probas /= probas.sum() #normalize
+        probas = probas.unsqueeze(-1)
+        embeddings = torch.cat(embeddings)
+        final_emb = embeddings * probas
+        final_emb = final_emb.sum(0)
+        final_emb = final_emb.view(1, 1, -1)
+
+        cont_out = self.controller(final_emb)[0].squeeze(0)
 
         return cont_out
 
@@ -293,26 +256,39 @@ class SimpleENAS(nn.Module):
 
         trajectory = az.select(self.starting_indices, self.decision_list)
 
-        result, decision_name, decision_idx, layer_idx = self.check_condition(az)
+        depth = az.curr_node["d"]
+        layer_idx = depth // len(self.decision_list)
+        decision_idx = depth % len(self.decision_list)
+        decision_name = self.decision_list[decision_idx]
 
-        #if true proceed like normal
-        if result:
+        d_plus = 1
+        curr_depth = az.curr_node["d"]
+        while True:
+            skip_curr = self.check_condition(az, layer_idx, decision_name)
+            if not skip_curr:
+                break
+            else:
+                curr_depth += 1
+                layer_idx = curr_depth // len(self.decision_list)
+                decision_idx = curr_depth % len(self.decision_list)
+                decision_name = self.decision_list[decision_idx]
+                d_plus += 1
+
+        if len(trajectory) > 0:
             cont_out = self.cont_out_from_trajectory(trajectory, decision_name)
 
-            probas = self.softmaxs[decision_idx](cont_out).squeeze()
-            probas_np = probas.detach().data.numpy()
+        probas = self.softmaxs[decision_idx](cont_out).squeeze()
+        probas_np = probas.detach().data.numpy()
 
-            if self.mask_conditions[decision_name] is not None:
-                probas_np = self.mask_conditions[decision_name](layer_idx, probas_np)
+        if self.mask_conditions[decision_name] is not None:
+            probas_np = self.mask_conditions[decision_name](layer_idx, probas_np)
 
-            az.expand(probas_np, self.decision_conditions, self.decision_list)
+        az.expand(probas_np, d_plus)
 
-            value = self.value_head(cont_out.squeeze())
-            value = value.detach().data.numpy()
-            az.backup(value)
-        #else we continue on to the next simulation
+        value = self.value_head(cont_out.squeeze())
+        value = value.detach().data.numpy()
+        az.backup(value)
 
-    #btw I think mixture of softmaxs might be important
     def make_architecture(self, num_sims=14):
         self.filter_chosen = False
         new_memories = []
@@ -338,54 +314,25 @@ class SimpleENAS(nn.Module):
             while az.curr_node["parent"] is not None:
                 az.curr_node = az.curr_node["parent"]
 
-            #so we are coming in with the root node d = -1
             d = az.curr_node["d"]
             decision_idx = d % len(self.decision_list)
+            starting_idx = self.starting_indices[decision_idx]
+            name = self.decision_list[decision_idx]
             choice_idx, visits = az.select_real() 
 
-            name = self.decision_list[decision_idx]
+            new_memories.append({
+                "search_probas": torch.from_numpy(visits).float()
+                , "trajectory": c(trajectory)
+            })
 
-            starting_idx = self.starting_indices[decision_idx]
             emb_idx = starting_idx + choice_idx
             
             trajectory.append(emb_idx)
 
-            new_memories.append({
-                "search_probas": torch.from_numpy(visits).float()
-                , "trajectory": trajectory
-            })
-
             decisions[name].append(choice_idx)
 
-            #so we now have a system that uses a softmax to choose how we mix the embeddings
-            #and then that mixed embedding is fed into the controller
-            #the logic is that we should be able to create a unique mixed embedding each time,
-            #and we wont need to have the system be autoregressive
-            #how will that effect the memories? basically the memories need to be
-            #search_probas, name, and trajectory
             orig_cont_out = self.cont_out_from_trajectory(trajectory, name)
-            #so we need a way to make cont out, which would be the trajectory at time-1
-            #the trajectory at time-1 would be choice_indices [-1]
-            #so we just need to include the trajectory I think.
-            #but then we have a recursive requirement problem right...?
-            #if we are depending on the controller for the next embedding, 
-            #and we dont want to save the controllers output, I'm not really sure how
-            #we could fix that. 
-
-            #the only solution that comes to mind is making the embedding softmax not
-            #take the controller out, instead having it take the embedding softmax for time-1
-            #but again that makes a recursive dependency
-
-            #we need a way to make a modularized mixed embedding and to 
-            #pass it as input, but to train with backprop we need to on demand call the softmax
-            #how do provide input to the softmax? we need the mixed embedding at time-1
-            #so we could fix that and put it in, but that's not really desirable
-            #maybe we can merge all of the embeddings together based on their visit counts
-            #pass that to the softmax, and then use the softmax * the embeddings 
-            #as the fix mixed embedding, i.e. we are learning a function which does a more
-            #fine tuned mix. and probably we could use multi head attention somehow
-            #that's the only thing I can think of for now. so we use the naive mix as the input
-            #for now
+            
             cont_out = orig_cont_out.clone()
 
             if d == az.max_depth-1:
@@ -414,7 +361,6 @@ class SimpleENAS(nn.Module):
 
     def train_controller(self, _, __):
         batch = sample(self.memories, self.batch_size)
-        #batch everything up where possible
 
         search_probas = []
         policies = []
@@ -433,8 +379,6 @@ class SimpleENAS(nn.Module):
                 starting_idx = self.starting_indices[decision_idx]
                 emb = self.embeddings[starting_idx + choice_idx].view(1, 1, -1)
                 cont_out = self.controller(emb)[0].squeeze(0)
-                #we cant really batch the value loss while it's autoregressive
-                #going to fix that soon....
                 value_loss += F.mse_loss(self.value_head(cont_out.squeeze()), score)
             probas = self.softmaxs[decision_idx](cont_out).squeeze()
             policies.append(probas)
@@ -450,29 +394,11 @@ class SimpleENAS(nn.Module):
         dist_matching_loss /= self.batch_size
 
         # dist_matching_loss /= len(search_probas) #might be wrong
-        # value_loss /= len(choice_indices)
 
         value_loss /= self.batch_size
         search_probas_loss /= self.batch_size
         value_loss *= 6
-        # value_loss *= 200
-        # value_loss *= 150 #this works pretty good, but the search_probas
-        # search_probas_loss /= self.batch_size
-        # search_probas_loss /= 28
-        # print("Value loss: {}, Search_probas loss: {}".format(value_loss.data.numpy(),
-        #     search_probas_loss.data.numpy())) 
-        # # total_loss = value_loss/80 + search_probas_loss*160 #seems to work good
-        # # total_loss = value_loss/160 + search_probas_loss*320 #okay too, value slow
-        # total_loss = value_loss/80 + search_probas_loss*160
-        # total_loss = value_loss + search_probas_loss
-        # total_loss = #value_loss + 
-        # print(f"Value: {value_loss.data.numpy()}, Probas {search_probas_loss.data.numpy()}")
         total_loss = search_probas_loss + value_loss
-
-        #probas: .2-.4, maybe .35
-        #value: idk it doesnt even make sense
-
-        # self.validating = not self.validating
 
         return total_loss
 
@@ -491,7 +417,6 @@ class SimpleENAS(nn.Module):
         controller_learner.model.real_forward = controller_learner.model.forward
 
         controller_learner.model.forward = lambda x: x
-        # controller_learner.fit(.2, 1) #.33
         controller_learner.fit(0.2, epochs, cycle_len=10, use_clr_beta=(10, 13.68, 0.95, 0.85), 
             wds=1e-6)
 
@@ -519,20 +444,6 @@ class SimpleENAS(nn.Module):
         return learn
 
     def create_arch_from_decisions(self, decisions):
-        #so let me think for a sec, I would like to make the net work as easily as possible
-        #i.e. not fail over and over (separable for example would error out for like 99.9%
-        # of choices)
-        #dilations and strides will change the r and c but we can pad them back to the originals
-        #out_filters will change the out_channels but we can progressively track it
-        #skips will increase the in_channels, but we should be able to keep track of it 
-        #and account for it
-
-        #sooo how I have this right now it would be kind of hard to make certain
-        #things only happen once in the loop
-        #how would we do that?
-        #right now we loop around and give each thing a decision
-        #we could maybe have something where we skip over a decision if we don't care about it
-        #lets try to do it, because it will give efficiency and more control
         f_d = decisions["filters"]
         g_d = decisions["groups"]
         k_d = decisions["kernels"]
@@ -568,7 +479,7 @@ class SimpleENAS(nn.Module):
                 # in_ch = f[f_d[i-1]]
                 in_ch = f[f_idx]
 
-            f_idx = f_d[i]            
+            # f_idx = f_d[i]            
 
             groups = g[g_idx]
             out_channels = f[f_idx]

@@ -1,7 +1,6 @@
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
-from lib import FLAGS
-from lib.SimpleENAS import SimpleENAS
+from lib.ENAS import ENAS
 from ipdb import set_trace
 
 from fastai.imports import *
@@ -64,7 +63,7 @@ def main(batch_size=64, max_memories=3000):
         memories = []
 
     trainloader, testloader = create_data_loaders(batch_size)
-    controller = SimpleENAS()
+    controller = ENAS()
     try:
         state_dict = torch.load('controller.p')
         controller.load_state_dict(state_dict)

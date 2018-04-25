@@ -152,9 +152,11 @@ class SimpleENAS(nn.Module):
         #and the additional softmax can be separate for simplicity, i.e. an
         #embedding merge softmax
 
+        self.total_embeddings = total_embeddings + num_layers
+
         self.embedding_merge_softmax = nn.Sequential(*[
                 LayerNorm(lstm_size),
-                nn.Linear(lstm_size, total_embeddings + num_layers), 
+                nn.Linear(lstm_size, self.total_embeddings), 
                 nn.Softmax(dim=1)
             ])
 
@@ -189,11 +191,7 @@ class SimpleENAS(nn.Module):
         self.mask_conditions = dict()
 
         def skip_mask(layer_idx, probas):
-            #so zero out the probas for all layers after the current one
-            #so for example lets say we're on layer 2
-            #we want to zero out the probability for 2-the end
-            #that means we would want layer_idx-1 actually so we include 2
-            probas[layer_idx-1:] *= 0
+            probas[layer_idx-1:] = 0
             return probas
 
         for name in self.decision_list:
@@ -202,25 +200,11 @@ class SimpleENAS(nn.Module):
             else:
                 self.mask_conditions[name] = None
 
-        # def filters_condition():
-        #     if self.filters_times_used is None:
-        #         self.filters_times_used = 1
-        #     else:
-        #         return False
-
-        # def skips_condition():
-        # self.conditions = [None for _ in range(len(self.decision_list))]
-        # self.conditions[0] = lambda x: 
-
-        #so lets see.. we could 
-
         self.starting_indices = []
 
         self.first_emb = nn.Parameter(torch.rand(lstm_size)-.5).view(1, 1, -1)
         softmaxs = []
         embeddings = []
-        #one solution is to have a list which gives the starting index
-        #for a given decision_idx
         starting_idx = 0
         for name in self.decision_list:
             options = self.decisions[name]
@@ -252,30 +236,67 @@ class SimpleENAS(nn.Module):
         self.softmaxs = nn.ModuleList(softmaxs)
         self.embeddings = nn.ParameterList(embeddings)
 
-    def do_sim(self, az, cont_out):
-        if az.curr_node["d"] == az.max_depth-1:
-            return
-
-        #so lets see, during the expand we are ignoring creating children
-        #where the condition results in false
-        #then the select should effectively ignore it
-        #so I think we just need to modify the expand
-        cont_out, decision_idx = az.select(self.starting_indices, self.decision_list,
-            self.embeddings, self.controller, cont_out)
-
+    def check_condition(self, az):
         depth = az.curr_node["d"]
         layer_idx = depth // self.num_layers
         decision_idx = depth % len(self.decision_list)
         decision_name = self.decision_list[decision_idx]
         condition = self.decision_conditions[decision_name]
+        return condition(layer_idx), decision_name, decision_idx, layer_idx
 
-        #so lets see... for skips for example we want to mask certain things, right?
-        #we want to mask all layers > the current layer_idx
+    def cont_out_from_trajectory(self, trajectory, decision_name):
+        indices = []
+        weights = dict()
+        seen = dict()
 
-        #so a natural thing would be that we maybe have mask conditions too
+        scaled_one = 1/len(trajectory)
+        for emb_idx in trajectory:
+            try:
+                seen[emb_idx]
+            except:
+                seen[emb_idx] = False
+
+            if not seen[emb_idx]:
+                try:
+                    weights[emb_idx] += scaled_one
+                except:
+                    weights[emb_idx] = 0
+
+                indices.append(emb_idx)
+        
+        embeddings = []
+        for _, idx in enumerate(indices):
+            embeddings.append(self.embeddings[idx].data.numpy()*weights[idx])
+
+        embeddings_input = Variable(torch.cat(embeddings))
+        embedding_merge_softmax = self.embedding_merge_softmax(embeddings_input).squeeze().data.numpy()
+
+        embeddings = np.array(embeddings)
+
+        embedding_merge_softmax = embedding_merge_softmax[indices]
+        embedding_merge_softmax /= embedding_merge_softmax.sum()
+
+        embedding_merge_softmax = np.expand_dims(embedding_merge_softmax, axis=-1)
+
+        merged_embedding = embeddings * embedding_merge_softmax
+        merged_embedding = merged_embedding.view(1, 1, -1)
+
+        cont_out = self.controller(merged_embedding)
+
+        return cont_out
+
+    def do_sim(self, az, cont_out):
+        if az.curr_node["d"] == az.max_depth-1:
+            return
+
+        trajectory = az.select(self.starting_indices, self.decision_list)
+
+        result, decision_name, decision_idx, layer_idx = self.check_condition(az)
 
         #if true proceed like normal
-        if condition(layer_idx):
+        if result:
+            cont_out = self.cont_out_from_trajectory(trajectory, decision_name)
+
             probas = self.softmaxs[decision_idx](cont_out).squeeze()
             probas_np = probas.detach().data.numpy()
 
@@ -289,152 +310,6 @@ class SimpleENAS(nn.Module):
             az.backup(value)
         #else we continue on to the next simulation
 
-    #so lets see.. we want the memories to be in a format which is easy for 
-    #the net to train on
-    #for that we want all of the results to be in a list, then a tensor
-    #for the search probas we'd like to make them a tensor and do elementwise multiplication
-    #so basically I want to get the memory in format where I can concat all the search probas
-    #and the policies, and I can do all of the values around the same time
-    #right now I can basically do that. one issue is that I need to load the whole trajectory
-    #which is pretty time consuming. but as long as we are maintaining the autoregressive quality
-    #it might be the best we can do. if we didnt have autoregression we could probably 
-    #compute dynamically the unique embedding which is a combination of all previous embeddings,
-    #I feel like ditching the autoregressiveness might be way to improve efficiency
-    #we can use transformer attention or dilated convs
-    #basically right now we have a unique embedding for each choice
-    #and we have a unique softmax for each decision
-    #and maybe we have a unique embedding for each layer?
-    #that would allow us to more easily specify differences between layers, which is definitely
-    #important. so basically we could concat learn an attention combine of all the embeddings,
-    #so basically all the decisions chosen and all of the layer embeddings
-    #basically we are trying to find a way to combine all of the different embeddings to create
-    #a unique embedding which decodes to give instructions about what to do next
-    #so we could do a masking thing maybe, like as we're going through the flow of the net
-    #we mask all embeddings that havent been used yet
-    #so for example we have a softmax (or hierarchical softmax / mixture) which 
-    #looks over all of the different options creates a new unique embedding
-    #so we want to create a new unique embedding for each step of the algo
-    #i.e. we want to create a unique attentional combination of all previous embeddings
-    #one issue with this is that if we choose the same embedding twice we will lose that 
-    #notion. maybe we can weigh the embeddings based on the number of times they've been used
-    #i.e. multiply each embedding in the softmax by the number of times it's been used
-
-    #so basically we progressively mask all of the embeddings and use attention to combine
-    #them into one new embedding which tells what to do next.
-
-    #so for example we choose emb1, and we mask everything except emb1 and the start_emb
-    #since the start_emb would be in everyhthing we can exclude it.
-
-    #then we pick emb5, we would mask all but those two, and normalize the softmax between the two
-    #(we may want to add a sharpness tanh or something, or possibly mix multiple softmaxs)
-
-    #then we pick emb1 again(just for showing) and emb1 will get a weight of 2, while emb5 will
-    #get a weight of 1, and the rest will get a weight of 0
-
-    #I think this is nicer because we are getting away from expensive autoregressive stuff
-    #and we can use training data much more efficiently, all we would need to store would be
-    #the final normalized softmax and we can use that to create the embeddings and send them
-    #to the net.
-
-    #another idea is we can have multiple softmax heads and mix their results
-    #that way we arent forced to do one mix of of the embeddings, we could do many mixes
-    #so that would allow more control.
-    #one question is how are we going to train these softmaxs that pick the embeddings
-    #one obvious solution is to run it through alphazero also, and basically we would interweave
-    #each decision with the embedding creation decision. it would effectively double the number of 
-    #sims, but it would be a strong way to determine how we create the embedding, which I like a lot
-
-    #I feel like it wouldn't be too hard to do either. we basically could add an option to select
-    #if it's the embedding combiner softmax, and if so we multiply each of the policies 
-    #by the mask. I guess that would be in the expand actually, when we create the policy
-    #make the policy 0 for each of the masked options, and we pass the pass to teh function
-
-    #so what to do first. I definitely dont want to forget to combine the search probas when
-    #we evaluate them, but thats conceptually simple, it's just batching to reduce overhead
-    #basically
-
-    #I never really analyzed the alphazero loss, it basically says (if the search probas are
-    # confident, your choice matters more, i.e. if the search probas are confident, the 
-    # policy should be confident). now one issue it is that of course, the more confident the
-    # algo gets, the closer other numbers will be to zero, which will result in a high loss for those
-    # that isn't totally satisfactory. can we invert it or something? 
-    #what do we want. we want the policy to match the search probas. there may be better ways
-    #to do that, such as KL div, jensen, MSE, etc. the confidence thing here I feel is a bit
-    #dubious for the reasons mentioned above, it will almost always have high loss
-    #we could square or cube the search probas, so that the loss for ones that the search_probas
-    #doesnt care about dont matter almost at all, which I feel is better, but idk,
-    #kind of feels like a hack
-
-    #and there is a lot of research out there about getting two probability distributions to match
-    #it seems like jensen is one of the best ones, or what about wasserstein loss for example?
-    #what if we do something like log of the difference between the two?
-    #so .9 - .7 would be 
-
-    #I guess it would be the inverse log
-    #so 1 - (diff)
-    #so for example (.9 - .7) = .2
-    #log(.8) = small = good
-    #so basically it would be the closer that the two are to each other the smaller 
-    #the loss would be. 
-    #now one obvious issue with is that we might not want the probabilty distribution to
-    #exactly match. we might want just some gentle encouragement for what we care about
-    #we could still do the weighting probably, where basically we mainly want to change
-    #the good high confidence options
-
-    #so the above -log(1 - (diff)) * search_prior**2 (for more sharpness)
-    #I feel like that is pretty nice
-    #can we matmul that?
-    #yeah we can for sure
-
-    #another thing we need to deal with is removing some redundant calculations
-    #for example right now we 
-
-    #for all expands we can add in a mask, or actually we can just do it from the policy!
-    #for the policy we can just mask what we dont want, and the UCT will stay 0
-    #so for example for the skips we can have it be over all layers between 1 and L-1
-    #and then mask the ones that would be impossible at that time
-    #and for the embedding combiner decisions, we can just multiple each of the probabilities
-    #for each of the embeddings by their number of visits
-
-    #another thing we need to fix is making it so that we can have one off decisions
-    #which arent repeated. i.e. we want to make it so that decisions are skipped
-    #under certain conditions. 
-    #for example we want to skip layer skip options when there was only one previous layer,
-    #because there is no choice to be made. 
-
-    #and for outfilters for example, we need to pick whether we will allow different filter 
-    #sizes or not. I would say not because it will in the long run give us a lot more 
-    #flexibility by counting on the out filter sizes always being the same.
-
-    #so where to start... for now I think removing the redundant calculations would be good
-    #so what would having conditional decision skipping entail...
-    #basically when we expand, we have a skip or dont skip option
-    #and basically we could look up by the decision index, and evaluate a function
-    #which tells us whether or not we should expand
-
-    #now one obvious issue with this is that we're kind of complicating the currently
-    #pretty simple loop
-    #I think the mask for the expands is easy to add in
-    #but injecting a bunch of code to make conditional skips is going to complicate things
-    #a lot. 
-    #it begs the question, maybe we should just add a section dedicated to one off runs
-    #i.e. out filters wouldnt be in decisions, it would be in one_off_decisions
-    #and we run all of the one off decisions at the beginning (or wherever)
-    #and then we do the normal loop
-
-    #I think thats better, because we really dont want to over complicate things.
-    #simplicity I really feel is a key factor in having something clever
-
-    #so lets see. basically we could add an initial "do first" option or something
-
-    #ive been thinking about it more.. and it may be just as disruptive to change the training
-    #loop. #probably I should just skip certain decisions if the conditions are met when we 
-    #expand
-    #so we have a list which links a decision index to a condition function
-    #if the condition function is none we proceed like normal
-    #otherwise we pass whatever info the condition function needs, 
-    #and we will return whether we proceed like normal or skip to the next decision
-
     #btw I think mixture of softmaxs might be important
     def make_architecture(self, num_sims=14):
         self.filter_chosen = False
@@ -445,8 +320,9 @@ class SimpleENAS(nn.Module):
 
         orig_cont_out = cont_out.clone()
 
-        choice_indices = []
-        decision_indices = []
+        # choice_indices = []
+        # decision_indices = []
+        trajectory = []
 
         decisions = dict()
         for name in self.decision_list:
@@ -466,39 +342,50 @@ class SimpleENAS(nn.Module):
             d = az.curr_node["d"]
             decision_idx = d % len(self.decision_list)
             choice_idx, visits = az.select_real() 
-            #we pick the most visited child (stochastically)
-            #and d is now = 0
-            #d % number of decisions so that it loops around 
 
-            #choose name for decision 0
             name = self.decision_list[decision_idx]
 
-            # len_v = len(visits)
-            # len_d = len(self.decisions[name])
-            # set_trace()
-            # assert len(visits) == len(self.decisions[name])
-
-            #so I could have the decisions up to this point, or the list of
-            #choice_indices and decisions_indices to this point
-            #that would allow having many different samples
-            #that actually seems like a great idea.
-            choice_indices.append(choice_idx)
-            decision_indices.append(decision_idx)
+            starting_idx = self.starting_indices[decision_idx]
+            emb_idx = starting_idx + choice_idx
+            
+            trajectory.append(emb_idx)
 
             new_memories.append({
                 "search_probas": torch.from_numpy(visits).float()
-                , "choice_indices": c(choice_indices)
-                , "decision_indices": c(decision_indices)
+                , "trajectory": trajectory
             })
 
             decisions[name].append(choice_idx)
 
-            starting_idx = self.starting_indices[decision_idx]
+            #so we now have a system that uses a softmax to choose how we mix the embeddings
+            #and then that mixed embedding is fed into the controller
+            #the logic is that we should be able to create a unique mixed embedding each time,
+            #and we wont need to have the system be autoregressive
+            #how will that effect the memories? basically the memories need to be
+            #search_probas, name, and trajectory
+            orig_cont_out = self.cont_out_from_trajectory(trajectory, name)
+            #so we need a way to make cont out, which would be the trajectory at time-1
+            #the trajectory at time-1 would be choice_indices [-1]
+            #so we just need to include the trajectory I think.
+            #but then we have a recursive requirement problem right...?
+            #if we are depending on the controller for the next embedding, 
+            #and we dont want to save the controllers output, I'm not really sure how
+            #we could fix that. 
 
-            #starting_idx is when it starts, + choice_idx determines which for that
-            emb = self.embeddings[starting_idx + choice_idx].view(1, 1, -1)
+            #the only solution that comes to mind is making the embedding softmax not
+            #take the controller out, instead having it take the embedding softmax for time-1
+            #but again that makes a recursive dependency
 
-            orig_cont_out = self.controller(emb)[0]
+            #we need a way to make a modularized mixed embedding and to 
+            #pass it as input, but to train with backprop we need to on demand call the softmax
+            #how do provide input to the softmax? we need the mixed embedding at time-1
+            #so we could fix that and put it in, but that's not really desirable
+            #maybe we can merge all of the embeddings together based on their visit counts
+            #pass that to the softmax, and then use the softmax * the embeddings 
+            #as the fix mixed embedding, i.e. we are learning a function which does a more
+            #fine tuned mix. and probably we could use multi head attention somehow
+            #that's the only thing I can think of for now. so we use the naive mix as the input
+            #for now
             cont_out = orig_cont_out.clone()
 
             if d == az.max_depth-1:

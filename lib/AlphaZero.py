@@ -20,9 +20,10 @@ class AlphaZero:
 
         self.T = 1
 
-    def select(self, starting_indices, decision_list, embeddings, controller, cont_out):
-        decision_idx = 0
-
+    def select(self, starting_indices, decision_list):
+        trajectory = []
+        #well one argument for moving all of this stuff out of here is that we can 
+        #reduce the need for all these inputs
         while self.curr_node["children"] is not None and self.curr_node["d"] < self.max_depth:
             choice_idx = self.curr_node["max_uct_idx"]
             self.curr_node = self.curr_node["children"][choice_idx]
@@ -30,10 +31,11 @@ class AlphaZero:
             d = self.curr_node["d"]
             decision_idx = d % len(decision_list)
             starting_idx = starting_indices[decision_idx]
-            emb = embeddings[starting_idx + choice_idx].view(1, 1, -1)
-            cont_out = controller(emb)[0].squeeze(0)
+            emb_idx = starting_idx + choice_idx
 
-        return cont_out, decision_idx
+            trajectory.append(emb_idx)
+
+        return trajectory
 
     def select_real(self, stochastic=True):
         visits = np.array([child["N"] for child in self.curr_node["children"]])
@@ -64,10 +66,14 @@ class AlphaZero:
     #so we can mask the policy before we get in, and it'll be correct
     #then we also pass 
 
+
     #we should try to calculate as muchas possible outside this class
     #so lets try to only pass what we need
     def expand(self, policy):
         self.curr_node["children"] = []
+
+        if self.curr_node["parent"] is None:
+            policy = self.add_dirichlet_noise(policy)
 
         for p in policy:
             child = {
@@ -82,9 +88,6 @@ class AlphaZero:
             }
 
             self.curr_node["children"].extend([child])
-
-        if self.curr_node["parent"] is None:
-            self.add_dirichlet_noise()
 
         return self.curr_node
 
@@ -112,8 +115,9 @@ class AlphaZero:
         self.curr_node["W"] += value
         self.curr_node["Q"] = self.curr_node["W"]/self.curr_node["N"]
 
-    def add_dirichlet_noise(self):
-        nu = np.random.dirichlet([self.alpha] * len(self.curr_node["children"]))*self.epsilon
+    def add_dirichlet_noise(self, policy):
+        nu = np.random.dirichlet([self.alpha] * len(self.curr_node["children"]))
+        policy = policy*(1-self.epsilon) + nu*self.epsilon
 
-        for i, child in enumerate(self.curr_node["children"]):
-            child["P"] = child["P"]*(1-self.epsilon) + nu[i]
+        return policy
+

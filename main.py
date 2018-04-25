@@ -103,9 +103,8 @@ def main(batch_size=64, max_memories=3000):
             break
 
         if cnt % 30 == 0:
-            print(len(memories))            
             memories = memories[-max_memories:]
-            print(len(memories))
+            print(f"Num memories: {len(memories)}")
             p.dump(memories, open("memories.p", "wb"))
             p.dump(memories, open("memories1.p", "wb"))            
             print("Successfully saved memories")

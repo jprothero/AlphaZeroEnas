@@ -256,28 +256,44 @@ class ENAS(nn.Module):
 
         trajectory = az.select(self.starting_indices, self.decision_list)
 
+        #so we get to a node and we see if we should skip expanding it
+        #this is the same issue as before
+        #if we get to checking if we expand something we shouldnt have expanded,
+        #we already f'd up
+        #so I need to check future nodes
+
         depth = az.curr_node["d"]
         layer_idx = depth // len(self.decision_list)
         decision_idx = depth % len(self.decision_list)
         decision_name = self.decision_list[decision_idx]
 
+        next_depth = az.curr_node["d"] + 1
+        next_layer_idx = next_depth // len(self.decision_list)
+        next_decision_idx = next_depth % len(self.decision_list)
+        next_decision_name = self.decision_list[next_decision_idx]
+
         d_plus = 1
-        curr_depth = az.curr_node["d"]
         while True:
-            skip_curr = self.check_condition(az, layer_idx, decision_name)
+            skip_curr = self.check_condition(az, next_layer_idx, next_decision_name)
             if not skip_curr:
                 break
             else:
-                curr_depth += 1
-                layer_idx = curr_depth // len(self.decision_list)
-                decision_idx = curr_depth % len(self.decision_list)
-                decision_name = self.decision_list[decision_idx]
+                depth = next_depth
+                layer_idx = next_layer_idx
+                decision_idx = next_decision_idx
+                decision_name = next_decision_name
+
+                next_depth += 1
+                next_layer_idx = next_depth // len(self.decision_list)
+                next_decision_idx = next_depth % len(self.decision_list)
+                next_decision_name = self.decision_list[next_decision_idx]
                 d_plus += 1
 
         if len(trajectory) > 0:
             cont_out = self.cont_out_from_trajectory(trajectory, decision_name)
 
         probas = self.softmaxs[decision_idx](cont_out).squeeze()
+
         probas_np = probas.detach().data.numpy()
 
         if self.mask_conditions[decision_name] is not None:
@@ -289,7 +305,8 @@ class ENAS(nn.Module):
         value = value.detach().data.numpy()
         az.backup(value)
 
-    def make_architecture(self, num_sims=14):
+    def make_architecture(self, num_sims=40):
+        self.eval()
         self.filter_chosen = False
         new_memories = []
         az = AlphaZero(max_depth=self.num_layers*len(self.decision_list))
@@ -495,6 +512,8 @@ class ENAS(nn.Module):
                     else:
                         groups = in_ch
 
+            if st_idx > 1:
+                set_trace()
             padding = np.ceil(self.R*((st[st_idx]-1)/2))
             
             padding += np.ceil(((k[k_idx]-1) + (k[k_idx]-1)*(d[d_idx]-1))/2)

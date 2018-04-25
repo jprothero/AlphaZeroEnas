@@ -112,7 +112,7 @@ class SimpleENAS(nn.Module):
             # 3
         ]
 
-        # self.skips = [i for i in range(num_layers-1)]
+        self.skips = [i for i in range(num_layers-1)]
 
         self.decisions = {
             "filters": self.filters,
@@ -121,18 +121,70 @@ class SimpleENAS(nn.Module):
             "dilations": self.dilations,
             "activations": self.activations,
             "strides": self.strides,
-            # "skips": self.skips
+            "skips": self.skips
         }
 
         self.decision_list = [
             "filters"
             , "groups"
+            , "emb_merge1"
             , "kernels"
+            , "emb_merge2"            
             , "dilations"
+            , "emb_merge3"                        
             , "activations"
+            , "emb_merge4"                                    
             , "strides"
-            # , "skips"
+            , "skips"
         ]
+
+        def skip_condition(layer_idx):
+            #skip when layer index = 0 (no skip options)
+            #or when layer_idx = 1 (only 1 option, doesnt make sense)
+            #true means normal, false means skip this decision
+            if layer_idx > 1:
+                return True
+            else:
+                return False
+
+        def filter_condition(layer_idx):
+            #only do one filters choice then skip future ones
+            if layer_idx == 0:
+                return True
+            else:
+                return False
+
+        def embedding_merge_condition(layer_idx):
+            #sooo we only want to do embedding merges in certain conditions right?
+            #basically if d > 1 or something we should allow embedding merges, because it would
+            #be a valid choice
+
+            #oh I just realized injecting these decisions agnostic of the order might be bad...
+            #can we do it though? basically we can 
+            #right now we use d to determine the decision idx and stuff
+            #well the issue is that we need 
+            #basically to do this painlessly we need to manually add 
+            #the embedding merges as decisions
+            #which is fine, and probably we wont need the condition then
+
+            #this is hard to imagine, lets step through it
+            #d=0, choose out_filters
+            #d=1, choose embeddings merge, doesnt work because we 
+            #only do one filters choice then skip future ones
+            if layer_idx == 0:
+                return True
+            else:
+                return False
+
+        self.decision_conditions = dict()
+
+        for name in self.decision_list:
+            if name is "skips":
+                self.decision_conditions[name] = skip_condition
+            elif name is "filters":
+                self.decision_conditions[name] = filter_condition
+            else:
+                self.decision_conditions[name] = None
 
         # def filters_condition():
         #     if self.filters_times_used is None:
@@ -302,6 +354,33 @@ class SimpleENAS(nn.Module):
     #flexibility by counting on the out filter sizes always being the same.
 
     #so where to start... for now I think removing the redundant calculations would be good
+    #so what would having conditional decision skipping entail...
+    #basically when we expand, we have a skip or dont skip option
+    #and basically we could look up by the decision index, and evaluate a function
+    #which tells us whether or not we should expand
+
+    #now one obvious issue with this is that we're kind of complicating the currently
+    #pretty simple loop
+    #I think the mask for the expands is easy to add in
+    #but injecting a bunch of code to make conditional skips is going to complicate things
+    #a lot. 
+    #it begs the question, maybe we should just add a section dedicated to one off runs
+    #i.e. out filters wouldnt be in decisions, it would be in one_off_decisions
+    #and we run all of the one off decisions at the beginning (or wherever)
+    #and then we do the normal loop
+
+    #I think thats better, because we really dont want to over complicate things.
+    #simplicity I really feel is a key factor in having something clever
+
+    #so lets see. basically we could add an initial "do first" option or something
+
+    #ive been thinking about it more.. and it may be just as disruptive to change the training
+    #loop. #probably I should just skip certain decisions if the conditions are met when we 
+    #expand
+    #so we have a list which links a decision index to a condition function
+    #if the condition function is none we proceed like normal
+    #otherwise we pass whatever info the condition function needs, 
+    #and we will return whether we proceed like normal or skip to the next decision
 
     #btw I think mixture of softmaxs might be important
     def make_architecture(self, num_sims=14):

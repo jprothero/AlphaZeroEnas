@@ -154,10 +154,15 @@ class SimpleENAS(nn.Module):
 
         self.total_embeddings = total_embeddings + num_layers
 
-        self.embedding_merge_softmax = nn.Sequential(*[
+        # self.embedding_merge_softmax = nn.Sequential(*[
+        #         LayerNorm(lstm_size),
+        #         nn.Linear(lstm_size, self.total_embeddings), 
+        #         nn.Softmax(dim=1)
+        #     ])
+
+        self.emb_merge_pre_softmax = nn.Sequential(*[
                 LayerNorm(lstm_size),
                 nn.Linear(lstm_size, self.total_embeddings), 
-                nn.Softmax(dim=1)
             ])
 
         #and additional layer embeddings (optional)
@@ -264,24 +269,21 @@ class SimpleENAS(nn.Module):
 
                 indices.append(emb_idx)
         
+        logits = []
         embeddings = []
         for _, idx in enumerate(indices):
-            embeddings.append(self.embeddings[idx].data.numpy()*weights[idx])
+            embeddings.append(self.embeddings[idx])
+            logits = self.emb_merge_pre_softmax(self.embeddings[idx])
 
-        embeddings_input = Variable(torch.cat(embeddings))
-        embedding_merge_softmax = self.embedding_merge_softmax(embeddings_input).squeeze().data.numpy()
+        logits = torch.cat(logits)
+        probas = F.softmax(logits)
+        final_emb = 0
+        for p, idx, emb in zip(probas, indices, embeddings):
+            final_emb += emb*p*weights[idx]
+        final_emb = final_emb.view(1, 1, -1)
+        set_trace()
 
-        embeddings = np.array(embeddings)
-
-        embedding_merge_softmax = embedding_merge_softmax[indices]
-        embedding_merge_softmax /= embedding_merge_softmax.sum()
-
-        embedding_merge_softmax = np.expand_dims(embedding_merge_softmax, axis=-1)
-
-        merged_embedding = embeddings * embedding_merge_softmax
-        merged_embedding = merged_embedding.view(1, 1, -1)
-
-        cont_out = self.controller(merged_embedding)
+        cont_out = self.controller(final_emb)
 
         return cont_out
 
@@ -320,8 +322,6 @@ class SimpleENAS(nn.Module):
 
         orig_cont_out = cont_out.clone()
 
-        # choice_indices = []
-        # decision_indices = []
         trajectory = []
 
         decisions = dict()

@@ -184,6 +184,126 @@ class SimpleENAS(nn.Module):
         value = value.detach().data.numpy()
         az.backup(value)
 
+    #so lets see.. we want the memories to be in a format which is easy for 
+    #the net to train on
+    #for that we want all of the results to be in a list, then a tensor
+    #for the search probas we'd like to make them a tensor and do elementwise multiplication
+    #so basically I want to get the memory in format where I can concat all the search probas
+    #and the policies, and I can do all of the values around the same time
+    #right now I can basically do that. one issue is that I need to load the whole trajectory
+    #which is pretty time consuming. but as long as we are maintaining the autoregressive quality
+    #it might be the best we can do. if we didnt have autoregression we could probably 
+    #compute dynamically the unique embedding which is a combination of all previous embeddings,
+    #I feel like ditching the autoregressiveness might be way to improve efficiency
+    #we can use transformer attention or dilated convs
+    #basically right now we have a unique embedding for each choice
+    #and we have a unique softmax for each decision
+    #and maybe we have a unique embedding for each layer?
+    #that would allow us to more easily specify differences between layers, which is definitely
+    #important. so basically we could concat learn an attention combine of all the embeddings,
+    #so basically all the decisions chosen and all of the layer embeddings
+    #basically we are trying to find a way to combine all of the different embeddings to create
+    #a unique embedding which decodes to give instructions about what to do next
+    #so we could do a masking thing maybe, like as we're going through the flow of the net
+    #we mask all embeddings that havent been used yet
+    #so for example we have a softmax (or hierarchical softmax / mixture) which 
+    #looks over all of the different options creates a new unique embedding
+    #so we want to create a new unique embedding for each step of the algo
+    #i.e. we want to create a unique attentional combination of all previous embeddings
+    #one issue with this is that if we choose the same embedding twice we will lose that 
+    #notion. maybe we can weigh the embeddings based on the number of times they've been used
+    #i.e. multiply each embedding in the softmax by the number of times it's been used
+
+    #so basically we progressively mask all of the embeddings and use attention to combine
+    #them into one new embedding which tells what to do next.
+
+    #so for example we choose emb1, and we mask everything except emb1 and the start_emb
+    #since the start_emb would be in everyhthing we can exclude it.
+
+    #then we pick emb5, we would mask all but those two, and normalize the softmax between the two
+    #(we may want to add a sharpness tanh or something, or possibly mix multiple softmaxs)
+
+    #then we pick emb1 again(just for showing) and emb1 will get a weight of 2, while emb5 will
+    #get a weight of 1, and the rest will get a weight of 0
+
+    #I think this is nicer because we are getting away from expensive autoregressive stuff
+    #and we can use training data much more efficiently, all we would need to store would be
+    #the final normalized softmax and we can use that to create the embeddings and send them
+    #to the net.
+
+    #another idea is we can have multiple softmax heads and mix their results
+    #that way we arent forced to do one mix of of the embeddings, we could do many mixes
+    #so that would allow more control.
+    #one question is how are we going to train these softmaxs that pick the embeddings
+    #one obvious solution is to run it through alphazero also, and basically we would interweave
+    #each decision with the embedding creation decision. it would effectively double the number of 
+    #sims, but it would be a strong way to determine how we create the embedding, which I like a lot
+
+    #I feel like it wouldn't be too hard to do either. we basically could add an option to select
+    #if it's the embedding combiner softmax, and if so we multiply each of the policies 
+    #by the mask. I guess that would be in the expand actually, when we create the policy
+    #make the policy 0 for each of the masked options, and we pass the pass to teh function
+
+    #so what to do first. I definitely dont want to forget to combine the search probas when
+    #we evaluate them, but thats conceptually simple, it's just batching to reduce overhead
+    #basically
+
+    #I never really analyzed the alphazero loss, it basically says (if the search probas are
+    # confident, your choice matters more, i.e. if the search probas are confident, the 
+    # policy should be confident). now one issue it is that of course, the more confident the
+    # algo gets, the closer other numbers will be to zero, which will result in a high loss for those
+    # that isn't totally satisfactory. can we invert it or something? 
+    #what do we want. we want the policy to match the search probas. there may be better ways
+    #to do that, such as KL div, jensen, MSE, etc. the confidence thing here I feel is a bit
+    #dubious for the reasons mentioned above, it will almost always have high loss
+    #we could square or cube the search probas, so that the loss for ones that the search_probas
+    #doesnt care about dont matter almost at all, which I feel is better, but idk,
+    #kind of feels like a hack
+
+    #and there is a lot of research out there about getting two probability distributions to match
+    #it seems like jensen is one of the best ones, or what about wasserstein loss for example?
+    #what if we do something like log of the difference between the two?
+    #so .9 - .7 would be 
+
+    #I guess it would be the inverse log
+    #so 1 - (diff)
+    #so for example (.9 - .7) = .2
+    #log(.8) = small = good
+    #so basically it would be the closer that the two are to each other the smaller 
+    #the loss would be. 
+    #now one obvious issue with is that we might not want the probabilty distribution to
+    #exactly match. we might want just some gentle encouragement for what we care about
+    #we could still do the weighting probably, where basically we mainly want to change
+    #the good high confidence options
+
+    #so the above -log(1 - (diff)) * search_prior**2 (for more sharpness)
+    #I feel like that is pretty nice
+    #can we matmul that?
+    #yeah we can for sure
+
+    #another thing we need to deal with is removing some redundant calculations
+    #for example right now we 
+
+    #for all expands we can add in a mask, or actually we can just do it from the policy!
+    #for the policy we can just mask what we dont want, and the UCT will stay 0
+    #so for example for the skips we can have it be over all layers between 1 and L-1
+    #and then mask the ones that would be impossible at that time
+    #and for the embedding combiner decisions, we can just multiple each of the probabilities
+    #for each of the embeddings by their number of visits
+
+    #another thing we need to fix is making it so that we can have one off decisions
+    #which arent repeated. i.e. we want to make it so that decisions are skipped
+    #under certain conditions. 
+    #for example we want to skip layer skip options when there was only one previous layer,
+    #because there is no choice to be made. 
+
+    #and for outfilters for example, we need to pick whether we will allow different filter 
+    #sizes or not. I would say not because it will in the long run give us a lot more 
+    #flexibility by counting on the out filter sizes always being the same.
+
+    #so where to start... for now I think removing the redundant calculations would be good
+
+    #btw I think mixture of softmaxs might be important
     def make_architecture(self, num_sims=14):
         self.filter_chosen = False
         new_memories = []
@@ -234,7 +354,7 @@ class SimpleENAS(nn.Module):
             decision_indices.append(decision_idx)
 
             new_memories.append({
-                "search_probas": visits
+                "search_probas": torch.from_numpy(visits).float()
                 , "choice_indices": c(choice_indices)
                 , "decision_indices": c(decision_indices)
             })
@@ -275,6 +395,10 @@ class SimpleENAS(nn.Module):
 
     def train_controller(self, _, __):
         batch = sample(self.memories, self.batch_size)
+        #batch everything up where possible
+
+        search_probas = []
+        policies = []
 
         value_loss = 0
         search_probas_loss = 0
@@ -290,15 +414,24 @@ class SimpleENAS(nn.Module):
                 starting_idx = self.starting_indices[decision_idx]
                 emb = self.embeddings[starting_idx + choice_idx].view(1, 1, -1)
                 cont_out = self.controller(emb)[0].squeeze(0)
+                #we cant really batch the value loss while it's autoregressive
+                #going to fix that soon....
                 value_loss += F.mse_loss(self.value_head(cont_out.squeeze()), score)
             probas = self.softmaxs[decision_idx](cont_out).squeeze()
-            probas = probas.unsqueeze(-1)
-            search_probas = Variable(torch.from_numpy(search_probas).float())
-            search_probas = search_probas.unsqueeze(0)
-            search_probas_loss += -search_probas.mm(torch.log(probas))
+            policies.append(probas)
+            search_probas.append(search_probas)
+        search_probas = torch.cat(search_probas)
+        search_probas = search_probas.unsqueeze(0)
+        search_probas = Variable(search_probas)
 
-            search_probas_loss /= len(search_probas) #might be wrong
-            # value_loss /= len(choice_indices)
+        policies = torch.cat(policies)
+        policies = policies.unsqueeze(-1)
+
+        dist_matching_loss = -(search_probas**2).mm(torch.log(1 - search_probas - policies))
+        dist_matching_loss /= self.batch_size
+
+        # dist_matching_loss /= len(search_probas) #might be wrong
+        # value_loss /= len(choice_indices)
 
         value_loss /= self.batch_size
         search_probas_loss /= self.batch_size

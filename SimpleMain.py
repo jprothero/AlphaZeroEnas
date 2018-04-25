@@ -16,6 +16,8 @@ import torch
 import torch.optim as optim
 from torch.autograd import Variable
 
+from copy import deepcopy
+
 from tqdm import tqdm
 
 import numpy as np
@@ -57,7 +59,8 @@ def main(batch_size=64, max_memories=3000):
     try:
         memories = p.load(open("memories.p", "rb"))
         print(f"Successfully loaded {len(memories)} memories")
-    except:
+    except Exception as e:
+        print("Error loading memories: ", e)
         memories = []
 
     trainloader, testloader = create_data_loaders(batch_size)
@@ -100,7 +103,7 @@ def main(batch_size=64, max_memories=3000):
             memories.extend(new_memories)
             break
 
-        if cnt % 10 == 0:
+        if cnt % 30 == 0:
             print(len(memories))            
             memories = memories[-max_memories:]
             print(len(memories))
@@ -108,21 +111,22 @@ def main(batch_size=64, max_memories=3000):
             p.dump(memories, open("memories1.p", "wb"))            
             print("Successfully saved memories")
 
-        if cnt % 20 == 0 and len(memories) > max_memories/2:
-            scores = []
-            for memory in memories:
-                scores.append(memory["score"])
+        if cnt % 30 == 0 and len(memories) > max_memories/2:
+            # scores = []
+            # for memory in memories:
+            #     scores.append(memory["score"])
 
-            scores = np.array(scores)
-            scores -= scores.mean()
-            scores /= scores.std()
-            scores = (scores - scores.min()) / (scores.max() - scores.min())
-            scores = Variable(torch.from_numpy(scores).float())
+            # scores = np.array(scores)
+            # scores -= scores.mean()
+            # scores /= scores.std()
+            # scores = (scores - scores.min()) / (scores.max() - scores.min())
+            # scores = Variable(torch.from_numpy(scores).float())
 
-            for memory, score in zip(memories, scores):
-                memory["score"] = score
+            # temp_memories = deepcopy(memories)
+            # for memory, score in zip(temp_memories, scores):
+            #     memory["score"] = score
 
-            controller.fastai_train(controller, memories, batch_size, num_cycles=30)
+            controller.fastai_train(controller, memories, batch_size)
             torch.save(controller.state_dict(), 'controller1.p')
             torch.save(controller.state_dict(), 'controller.p')
             print("Successfully saved controller")    

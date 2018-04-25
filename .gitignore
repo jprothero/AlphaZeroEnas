@@ -1,0 +1,7 @@
+data/
+old/
+ideas/
+fastai/
+.vscode/
+.ipynb_checkpoints/
+__pycache__/

@@ -2,7 +2,7 @@ import numpy as np
 from ipdb import set_trace
 
 class AlphaZero:
-    def __init__(self, max_depth, turns_until_tau0=15, alpha=.9, epsilon=.3, c=2):
+    def __init__(self, max_depth, turns_until_tau0=15, alpha=.6, epsilon=.1, c=1):
         self.turns_until_tau0 = turns_until_tau0
         self.alpha = alpha
         self.epsilon = epsilon

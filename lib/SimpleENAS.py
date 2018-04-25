@@ -65,10 +65,7 @@ class SimpleENAS(nn.Module):
             , LayerNorm(value_head_dims)
             , nn.ReLU()
             , nn.Linear(value_head_dims, value_head_dims)
-            , LayerNorm(value_head_dims)            
-            , nn.ReLU()
-            , nn.Linear(value_head_dims, value_head_dims)
-            , LayerNorm(value_head_dims)
+            , LayerNorm(value_head_dims)      
             , nn.ReLU()
             , nn.Linear(value_head_dims, 1)
             , nn.Tanh()
@@ -187,7 +184,7 @@ class SimpleENAS(nn.Module):
         value = value.detach().data.numpy()
         az.backup(value)
 
-    def make_architecture(self, num_sims=30):
+    def make_architecture(self, num_sims=14):
         self.filter_chosen = False
         new_memories = []
         az = AlphaZero(max_depth=self.num_layers*len(self.decision_list))
@@ -327,7 +324,7 @@ class SimpleENAS(nn.Module):
 
         return total_loss
 
-    def fastai_train(self, controller, memories, batch_size, num_cycles=15):
+    def fastai_train(self, controller, memories, batch_size, num_cycles=12, epochs=5):
         self.training = True
         self.memories = memories
         self.batch_size = batch_size
@@ -343,7 +340,7 @@ class SimpleENAS(nn.Module):
 
         controller_learner.model.forward = lambda x: x
         # controller_learner.fit(.2, 1) #.33
-        controller_learner.fit(0.3, 3, cycle_len=10, use_clr_beta=(10, 13.68, 0.95, 0.85), 
+        controller_learner.fit(0.2, epochs, cycle_len=10, use_clr_beta=(10, 13.68, 0.95, 0.85), 
             wds=1e-6)
 
         controller_learner.model.forward = controller_learner.model.real_forward

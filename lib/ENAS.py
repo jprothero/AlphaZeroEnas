@@ -251,7 +251,7 @@ class ENAS(nn.Module):
         return cont_out
 
     def do_sim(self, az, cont_out):
-        if az.curr_node["d"] == az.max_depth-1:
+        if az.curr_node["d"] >= az.max_depth-1:
             return
 
         trajectory = az.select(self.starting_indices, self.decision_list)
@@ -352,7 +352,7 @@ class ENAS(nn.Module):
             
             cont_out = orig_cont_out.clone()
 
-            if d == az.max_depth-1:
+            if d >= az.max_depth-1:
                 break
 
         for memory in new_memories:
@@ -511,10 +511,11 @@ class ENAS(nn.Module):
                         groups = out_channels
                     else:
                         groups = in_ch
-
-            if st_idx > 1:
+            try:
+                padding = np.ceil(self.R*((st[st_idx]-1)/2))
+            except IndexError as e:
+                print(e)
                 set_trace()
-            padding = np.ceil(self.R*((st[st_idx]-1)/2))
             
             padding += np.ceil(((k[k_idx]-1) + (k[k_idx]-1)*(d[d_idx]-1))/2)
 

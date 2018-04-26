@@ -169,6 +169,7 @@ class ENAS(nn.Module):
 
         def skip_mask(layer_idx, probas):
             probas[layer_idx-1:] = 0
+            probas /= (1.0 * probas.sum())
             return probas
 
         for name in self.decision_list:
@@ -207,7 +208,7 @@ class ENAS(nn.Module):
         condition = self.decision_conditions[decision_name]
         return condition(layer_idx)
 
-    def cont_out_from_trajectory(self, trajectory, decision_name):
+    def cont_out_from_trajectory(self, trajectory):
         indices = []
         weights = dict()
         seen = dict()
@@ -267,39 +268,50 @@ class ENAS(nn.Module):
         decision_idx = depth % len(self.decision_list)
         decision_name = self.decision_list[decision_idx]
 
-        next_depth = az.curr_node["d"] + 1
-        next_layer_idx = next_depth // len(self.decision_list)
-        next_decision_idx = next_depth % len(self.decision_list)
-        next_decision_name = self.decision_list[next_decision_idx]
+        # next_depth = az.curr_node["d"] + 1
+        # next_layer_idx = next_depth // len(self.decision_list)
+        # next_decision_idx = next_depth % len(self.decision_list)
+        # next_decision_name = self.decision_list[next_decision_idx]
 
-        d_plus = 1
+        #okay... so right now this is looking ahead to the next decision
+        #and if the next decision is bad, we skip the current one?
+        #that doesnt really make sense
+        #we want to do the current decision, then when the current one is a bad one
+        #we skip it and go to the next one
+
+        #okayyy  I think I see the problem. 
+        #the d for the current node is not getting updated, so there is an error
+
+        # d_plus = 1
         while True:
-            skip_curr = self.check_condition(az, next_layer_idx, next_decision_name)
+            skip_curr = self.check_condition(az, layer_idx, decision_name)
+            # if decision_name is "skips" or decision_name is "filters":
+            #     set_trace()
             if not skip_curr:
                 break
             else:
-                depth = next_depth
-                layer_idx = next_layer_idx
-                decision_idx = next_decision_idx
-                decision_name = next_decision_name
-
-                next_depth += 1
-                next_layer_idx = next_depth // len(self.decision_list)
-                next_decision_idx = next_depth % len(self.decision_list)
-                next_decision_name = self.decision_list[next_decision_idx]
-                d_plus += 1
+                #if I do it like this I can always do d+1
+                az.curr_node["d"] += 1
+                depth = az.curr_node["d"]
+                layer_idx = depth // len(self.decision_list)
+                decision_idx = depth % len(self.decision_list)
+                decision_name = self.decision_list[decision_idx]
+                # d_plus += 1
 
         if len(trajectory) > 0:
-            cont_out = self.cont_out_from_trajectory(trajectory, decision_name)
+            cont_out = self.cont_out_from_trajectory(trajectory)
 
         probas = self.softmaxs[decision_idx](cont_out).squeeze()
 
         probas_np = probas.detach().data.numpy()
+        # for name, arr in self.decisions.items():
+        #     if decision_name is name:
+        #         assert len(probas_np) == len(arr)
 
         if self.mask_conditions[decision_name] is not None:
             probas_np = self.mask_conditions[decision_name](layer_idx, probas_np)
 
-        az.expand(probas_np, d_plus)
+        az.expand(probas_np)
 
         value = self.value_head(cont_out.squeeze())
         value = value.detach().data.numpy()
@@ -337,6 +349,10 @@ class ENAS(nn.Module):
             name = self.decision_list[decision_idx]
             choice_idx, visits = az.select_real() 
 
+            # if len(visits) != len(self.decisions[name]):
+            #     set_trace()
+            # assert len(visits) == len(self.decisions[name])
+
             new_memories.append({
                 "search_probas": torch.from_numpy(visits).float()
                 , "trajectory": c(trajectory)
@@ -344,11 +360,14 @@ class ENAS(nn.Module):
 
             emb_idx = starting_idx + choice_idx
             
+            #so let me think about this. the first time the trajectory would be none
+            #which is correct, we made that choice without using a trajectory
+            #so I think it's correct
             trajectory.append(emb_idx)
 
             decisions[name].append(choice_idx)
 
-            orig_cont_out = self.cont_out_from_trajectory(trajectory, name)
+            orig_cont_out = self.cont_out_from_trajectory(trajectory)
             
             cont_out = orig_cont_out.clone()
 
@@ -511,11 +530,7 @@ class ENAS(nn.Module):
                         groups = out_channels
                     else:
                         groups = in_ch
-            try:
-                padding = np.ceil(self.R*((st[st_idx]-1)/2))
-            except IndexError as e:
-                print(e)
-                set_trace()
+            padding = np.ceil(self.R*((st[st_idx]-1)/2))
             
             padding += np.ceil(((k[k_idx]-1) + (k[k_idx]-1)*(d[d_idx]-1))/2)
 

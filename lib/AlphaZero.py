@@ -72,7 +72,7 @@ class AlphaZero:
 
     #we should try to calculate as muchas possible outside this class
     #so lets try to only pass what we need
-    def expand(self, policy, d_plus):
+    def expand(self, policy):
         self.curr_node["children"] = []
 
         if self.curr_node["parent"] is None:
@@ -85,7 +85,7 @@ class AlphaZero:
                 "Q": 0,
                 "U": p,
                 "P": p,
-                "d": self.curr_node["d"]+d_plus,
+                "d": self.curr_node["d"]+1,
                 "children": None,
                 "parent": self.curr_node
             }

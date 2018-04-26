@@ -316,7 +316,7 @@ class ENAS(nn.Module):
         value = value.detach().data.numpy()
         az.backup(value)
 
-    def make_architecture(self, num_sims=40):
+    def make_architecture(self, num_sims=30):
         self.eval()
         self.filter_chosen = False
         new_memories = []
@@ -395,13 +395,15 @@ class ENAS(nn.Module):
     def forward(self, X):
         pass
 
-    def train_controller(self, _, __):
+    def train_controller(self, _=None, __=None):
         batch = sample(self.memories, self.batch_size)
 
         search_probas = []
         policies = []
         values = []
         scores = []
+
+        # ones = torch.ones(self.batch_size).unsqueeze(0)
 
         value_loss = 0
         for memory in batch:
@@ -415,13 +417,50 @@ class ENAS(nn.Module):
             else:
                 cont_out = self.cont_out_from_trajectory(trajectory, training=True)
 
-            value_loss += F.mse_loss(self.value_head(cont_out.squeeze()), score)
+            scores.append(score.unsqueeze(0))
+            # if self.training:
+            #     self.value_head.register_hook(print)
+            value = self.value_head(cont_out.squeeze())
+            # value_loss += F.mse_loss(value, score)
+            values.append(value)
             probas = self.softmaxs[decision_idx](cont_out).squeeze()
 
             policies.append(probas)
             search_probas.append(sp)
         search_probas = torch.cat(search_probas)
         search_probas = Variable(search_probas)
+
+        values = torch.cat(values)
+        scores = torch.cat(scores)
+        # # if self.training:
+        # #     values.register_hook(print)
+
+        # # value_loss = F.mse_loss(values, scores)
+
+        values += 1
+        values /= 2
+
+        scores += 1
+        scores /= 2
+
+        # print("*"*10)
+        # print("*"*10)
+        # print("*"*10)
+        # print("Value mean: ", values.mean())
+        # print("*"*10)
+        # print("*"*10)
+        # print("*"*10)
+
+        # values.register_hook(print)
+
+        # value_loss = -ones.mm(torch.log(1 - torch.abs(scores - values).unsqueeze(-1)))
+
+        value_div = 5e4
+        dist_div = 5e3  #5e3 is good
+
+        value_loss = -torch.log(1 - torch.abs(scores - values)).sum()
+        value_loss /= value_div         
+        # value_loss /= 10       
 
         policies = torch.cat(policies)
         # policies = policies.unsqueeze(-1)
@@ -431,21 +470,32 @@ class ENAS(nn.Module):
 
         #issue: search_rpboas and policies may be result in negatives
         #can we tak the derivative of abs?we can try
+        # dist_matching_loss = -(search_probas**2).unsqueeze(0).mm(torch.log(1 - \
+        #  torch.abs(search_probas - policies).unsqueeze(-1)))
+
         dist_matching_loss = -(search_probas**2).unsqueeze(0).mm(torch.log(1 - \
          torch.abs(search_probas - policies).unsqueeze(-1)))
-        dist_matching_loss /= self.batch_size
+
+        dist_matching_loss /= dist_div    
+        # dist_matching_loss /= self.batch_size
+        # dist_matching_loss /= self.batch_size
+        # dist_matching_loss /= self.batch_size
+        # dist_matching_loss /= self.batch_size
+        # dist_matching_loss /= self.batch_size
+
+        # dist_matching_loss = F.mse_loss(policies, search_probas)
 
         # dist_matching_loss /= len(search_probas) #might be wrong
 
-        value_loss /= self.batch_size
         # search_probas_loss /= self.batch_size
-        value_loss *= 6
+        print(f"Dist: {dist_matching_loss.data.numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
         total_loss = dist_matching_loss + value_loss 
+        # total_loss = dist_matching_loss
+        # total_loss = value_loss
 
         return total_loss
 
     def fastai_train(self, controller, memories, batch_size, num_cycles=12, epochs=5):
-        self.training = True
         self.memories = memories
         self.batch_size = batch_size
         if (len(memories) < batch_size):
@@ -459,13 +509,12 @@ class ENAS(nn.Module):
         controller_learner.model.real_forward = controller_learner.model.forward
 
         controller_learner.model.forward = lambda x: x
-        controller_learner.fit(0.2, epochs, cycle_len=10, use_clr_beta=(10, 13.68, 0.95, 0.85), 
+        controller_learner.fit(0.4, epochs, cycle_len=10, use_clr_beta=(10, 13.68, 0.95, 0.85), 
             wds=1e-6)
 
         controller_learner.model.forward = controller_learner.model.real_forward
 
     def LR_find(self, controller, memories, batch_size, start_lr=1e-5, end_lr=10):
-        self.training = False
         self.memories = memories
         self.batch_size = batch_size
         if (len(memories) < batch_size):

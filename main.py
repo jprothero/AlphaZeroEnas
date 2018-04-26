@@ -54,7 +54,7 @@ def create_data_loaders(batch_size):
 
     return trainloader, testloader
 
-def main(batch_size=64, max_memories=3000):
+def main(batch_size=64, max_memories=10000, controller_batch_size=128):
     try:
         memories = p.load(open("memories.p", "rb"))
         print(f"Successfully loaded {len(memories)} memories")
@@ -72,6 +72,9 @@ def main(batch_size=64, max_memories=3000):
         print("Error loading controller weights: ", e)
         pass
     controller.eval()
+
+    # controller_optim = optim.Adam(params=controller.parameters(), lr=.2, weight_decay=1e-6)
+    controller_optim = optim.SGD(params=controller.parameters(), lr=.2, momentum=.8)
 
     cnt = 0
     while True:
@@ -125,11 +128,29 @@ def main(batch_size=64, max_memories=3000):
             #     memory["score"] = score
 
             controller.fastai_train(controller, memories, batch_size)
+            # normal_train(controller, controller_optim, memories[:128], controller_batch_size)
             torch.save(controller.state_dict(), 'controller1.p')
             torch.save(controller.state_dict(), 'controller.p')
             print("Successfully saved controller")    
 
         cnt += 1
+
+def normal_train(controller, controller_optim, memories, batch_size, num_batches=100):
+    controller.train()
+    controller.memories = memories
+    controller.batch_size = batch_size
+    for _ in range(num_batches):
+        controller_optim.zero_grad()
+
+        loss = controller.train_controller()
+
+        print("Loss:", loss.data.numpy())
+
+        loss.backward()
+
+        controller_optim.step()
+    controller.memories = None
+    controller.eval()
 
 if __name__ == "__main__":
     main()

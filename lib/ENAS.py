@@ -208,7 +208,7 @@ class ENAS(nn.Module):
         condition = self.decision_conditions[decision_name]
         return condition(layer_idx)
 
-    def cont_out_from_trajectory(self, trajectory):
+    def cont_out_from_trajectory(self, trajectory, training=False):
         indices = []
         weights = dict()
         seen = dict()
@@ -229,16 +229,15 @@ class ENAS(nn.Module):
         
         logits = []
         embeddings = []
+        weights_list = []
         for _, idx in enumerate(indices):
             embeddings.append(self.embeddings[idx].unsqueeze(0))
             logits.append(self.emb_merge_pre_softmax(self.embeddings[idx])[indices].unsqueeze(0))
-
+            weights_list.append(weights[idx])
+        weights = torch.from_numpy(np.array(weights_list)).float().unsqueeze(-1)
         logits = torch.cat(logits)
-        logits = logits.sum(1)
-        probas = F.softmax(logits)
-
-        for proba, idx in zip(probas, indices):
-            proba = proba*weights[idx]
+        probas = F.softmax(logits)*weights
+        probas = probas.sum(0)
 
         probas /= probas.sum() #normalize
         probas = probas.unsqueeze(-1)
@@ -356,6 +355,7 @@ class ENAS(nn.Module):
             new_memories.append({
                 "search_probas": torch.from_numpy(visits).float()
                 , "trajectory": c(trajectory)
+                , "decision_idx": decision_idx
             })
 
             emb_idx = starting_idx + choice_idx
@@ -400,41 +400,47 @@ class ENAS(nn.Module):
 
         search_probas = []
         policies = []
+        values = []
+        scores = []
 
         value_loss = 0
-        search_probas_loss = 0
         for memory in batch:
-            choice_indices = memory["choice_indices"]
-            decision_indices = memory["decision_indices"]
+            trajectory = memory["trajectory"]
             score = memory["score"]
-            search_probas = memory["search_probas"]
+            sp = memory["search_probas"]
+            decision_idx = memory["decision_idx"]
 
-            cont_out = self.controller(self.first_emb)[0].squeeze(0)
+            if len(trajectory) == 0:
+                cont_out = self.controller(self.first_emb)[0].squeeze(0)
+            else:
+                cont_out = self.cont_out_from_trajectory(trajectory, training=True)
 
-            for choice_idx, decision_idx in zip(choice_indices, decision_indices):
-                starting_idx = self.starting_indices[decision_idx]
-                emb = self.embeddings[starting_idx + choice_idx].view(1, 1, -1)
-                cont_out = self.controller(emb)[0].squeeze(0)
-                value_loss += F.mse_loss(self.value_head(cont_out.squeeze()), score)
+            value_loss += F.mse_loss(self.value_head(cont_out.squeeze()), score)
             probas = self.softmaxs[decision_idx](cont_out).squeeze()
+
             policies.append(probas)
-            search_probas.append(search_probas)
+            search_probas.append(sp)
         search_probas = torch.cat(search_probas)
-        search_probas = search_probas.unsqueeze(0)
         search_probas = Variable(search_probas)
 
         policies = torch.cat(policies)
-        policies = policies.unsqueeze(-1)
+        # policies = policies.unsqueeze(-1)
+        # distance_from_one = 1 - torch.abs(search_probas - policies)
+        # search_probas = search_probas.unsqueeze(0)**2
+        # distance_from_one = distance_from_one.unsqueeze(-1)
 
-        dist_matching_loss = -(search_probas**2).mm(torch.log(1 - search_probas - policies))
+        #issue: search_rpboas and policies may be result in negatives
+        #can we tak the derivative of abs?we can try
+        dist_matching_loss = -(search_probas**2).unsqueeze(0).mm(torch.log(1 - \
+         torch.abs(search_probas - policies).unsqueeze(-1)))
         dist_matching_loss /= self.batch_size
 
         # dist_matching_loss /= len(search_probas) #might be wrong
 
         value_loss /= self.batch_size
-        search_probas_loss /= self.batch_size
+        # search_probas_loss /= self.batch_size
         value_loss *= 6
-        total_loss = search_probas_loss + value_loss
+        total_loss = dist_matching_loss + value_loss 
 
         return total_loss
 

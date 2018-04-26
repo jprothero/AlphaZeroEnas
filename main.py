@@ -109,7 +109,7 @@ def main(batch_size=64, max_memories=3000):
             p.dump(memories, open("memories1.p", "wb"))            
             print("Successfully saved memories")
 
-        if cnt % 30 == 0 and len(memories) > max_memories/2:
+        if cnt % 30 == 0 and len(memories) > 128:
             # scores = []
             # for memory in memories:
             #     scores.append(memory["score"])

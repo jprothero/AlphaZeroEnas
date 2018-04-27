@@ -19,6 +19,9 @@ from .fastai.plots import *
 
 from copy import deepcopy as c
 
+# https://stackoverflow.com/questions/8277715/multiprocessing-in-a-pipeline-done-right
+#good multiprocessing/pipeline resource
+
 class LayerNorm(nn.Module):
     def __init__(self, features, eps=1e-6):
         super().__init__()
@@ -39,54 +42,67 @@ class FastaiWrapper():
     def get_layer_groups(self, precompute=False):
         return self.model
 
+#https://arxiv.org/pdf/1704.00325.pdf
+#parallel MCTS paper, good resource
+
 class ENAS(nn.Module):
-    def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=4, lstm_size=100, 
-            num_lstm_layers=4, value_head_dims=100):
+    def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=4, controller_dims=70, 
+            num_controller_layers=5, value_head_dims=70, num_value_layers=5):
         super(ENAS, self).__init__()
         self.num_classes = num_classes
         self.R = R
         self.C = C
         self.CH = CH
         self.num_layers = num_layers
-        self.lstm_size = lstm_size
-        self.num_lstm_layers = num_lstm_layers
+        self.lstm_size = controller_dims
+        self.num_controller_layers = num_controller_layers
         
         self.validating = False
         
         # self.controller = QRNN(lstm_size, lstm_size,
         #                        num_layers=num_lstm_layers)
 
+        #so basically we can split the different stages of the algorithm 
+        #into different functions for a pipe,
+        #and each one needs to happen before the last one finishes
+        #so we can select, expand, evaluate, and backup
+        #and I guess we have a main process that brings that all together?
+        #depends how we implement it
+        #I'm going to make that a separate branch to try that out
+
         controller_layers = []
-        for _ in range(5):
+        for _ in range(num_controller_layers):
             controller_layers.extend([
             # nn.Conv1d(lstm_size, lstm_size, 1)
-            nn.Linear(lstm_size, lstm_size)
-            , LayerNorm(lstm_size)
+            nn.Linear(controller_dims, controller_dims)
+            , LayerNorm(controller_dims)
             , nn.Tanh()])
 
         self.controller = nn.Sequential(*controller_layers)
 
         self.fake_data = self.create_fake_data()
 
-        self.value_head = nn.Sequential(*[
-            nn.Linear(lstm_size, value_head_dims)
+        value_layers = []
+
+        for _ in range(num_value_layers):
+            value_layers.extend([
+                nn.Linear(controller_dims, value_head_dims)
             , LayerNorm(value_head_dims)
             , nn.Tanh()
-            , nn.Linear(value_head_dims, value_head_dims)
-            , LayerNorm(value_head_dims)      
+            ])
+           
+        value_layers.extend([
+            nn.Linear(value_head_dims, 1)
             , nn.Tanh()
-            , nn.Linear(value_head_dims, value_head_dims)
-            , LayerNorm(value_head_dims)      
-            , nn.Tanh()
-            , nn.Linear(value_head_dims, 1)
-            , nn.Tanh()
-        ])
+            ])
+
+        self.value_head = nn.Sequential(*value_layers)
 
         self.filters = [
-            # 16,
+            16,
             32,
-            64,
-            128,
+            # 64,
+            # 128,
         ]
 
         self.groups = []
@@ -153,8 +169,8 @@ class ENAS(nn.Module):
         self.total_embeddings = total_embeddings + num_layers
 
         self.emb_merge_pre_softmax = nn.Sequential(*[
-                LayerNorm(lstm_size),
-                nn.Linear(lstm_size, self.total_embeddings), 
+                LayerNorm(controller_dims),
+                nn.Linear(controller_dims, self.total_embeddings), 
             ])
 
         def skip_condition(layer_idx):
@@ -194,25 +210,24 @@ class ENAS(nn.Module):
 
         self.starting_indices = []
 
-        self.first_emb = nn.Parameter(torch.rand(lstm_size)-.5)#.view(1, 1, -1)
+        self.first_emb = nn.Parameter(torch.rand(controller_dims)-.5)#.view(1, 1, -1)
         softmaxs = []
         embeddings = []
         starting_idx = 0
         for name in self.decision_list:
             options = self.decisions[name]
             softmaxs.append(nn.Sequential(*[
-                LayerNorm(lstm_size),
-                nn.Linear(lstm_size, len(options)), 
-                nn.Softmax(dim=1)
+                LayerNorm(controller_dims),
+                nn.Linear(controller_dims, len(options)), 
             ]))
 
-            embeddings.extend([nn.Parameter(torch.rand(lstm_size)-.5) for
+            embeddings.extend([nn.Parameter(torch.rand(controller_dims)-.5) for
                 _ in range(len(options))])
 
             self.starting_indices.append(starting_idx)
             starting_idx += len(options)
 
-        embeddings.extend([nn.Parameter(torch.rand(lstm_size)-.5) for
+        embeddings.extend([nn.Parameter(torch.rand(controller_dims)-.5) for
                 _ in range(num_layers)])
 
         self.softmaxs = nn.ModuleList(softmaxs)
@@ -249,18 +264,25 @@ class ENAS(nn.Module):
             logits.append(self.emb_merge_pre_softmax(self.embeddings[idx])[indices].unsqueeze(0))
             weights_list.append(weights[idx])
         weights = torch.from_numpy(np.array(weights_list)).float().unsqueeze(-1)
+        weights = weights.view(1, -1)
         logits = torch.cat(logits)
-        probas = F.softmax(logits)*weights
-        probas = probas.sum(0)
+
+        probas = F.softmax(logits)
+        probas = weights.mm(probas)
+
+        probas2 = F.softmax(logits)*weights
+        probas2 = probas2.sum(0)
+
+        assert (probas == probas2).all()
 
         probas /= probas.sum() #normalize
-        probas = probas.unsqueeze(-1)
+        probas = probas.view(1, -1)
         embeddings = torch.cat(embeddings)
-        final_emb = embeddings * probas
-        final_emb = final_emb.sum(0)
+        final_emb = probas.mm(embeddings)
+
         final_emb = final_emb.view(1, 1, -1)
 
-        cont_out = self.controller(final_emb)[0].squeeze(0)
+        cont_out = self.controller(final_emb)
 
         return cont_out
 
@@ -314,7 +336,8 @@ class ENAS(nn.Module):
         if len(trajectory) > 0:
             cont_out = self.cont_out_from_trajectory(trajectory)
 
-        probas = self.softmaxs[decision_idx](cont_out).squeeze()
+        logits = self.softmaxs[decision_idx](cont_out).squeeze()
+        probas = F.softmax(logits)
 
         probas_np = probas.detach().data.numpy()
         # for name, arr in self.decisions.items():
@@ -330,15 +353,14 @@ class ENAS(nn.Module):
         value = value.detach().data.numpy()
         az.backup(value)
 
-    def make_architecture(self, num_sims=40):
+    def make_architecture(self, num_sims=30):
         self.eval()
         self.filter_chosen = False
         new_memories = []
         az = AlphaZero(max_depth=self.num_layers*len(self.decision_list))
 
         # cont_out = self.controller(self.first_emb)[0].squeeze(0)
-        set_trace()
-        cont_out = self.controller(self.first_emb.view(-1, 1, 1))[0].squeeze(0)
+        cont_out = self.controller(self.first_emb)
 
         orig_cont_out = cont_out.clone()
 
@@ -419,7 +441,6 @@ class ENAS(nn.Module):
         values = []
         scores = []
 
-        # ones = torch.ones(self.batch_size).unsqueeze(0)
 
         value_loss = 0
         for memory in batch:
@@ -430,7 +451,7 @@ class ENAS(nn.Module):
 
             if len(trajectory) == 0:
                 # cont_out = self.controller(self.first_emb)[0].squeeze(0)
-                cont_out = self.controller(self.first_emb.view(-1, 1, 1))[0].squeeze(0)
+                cont_out = self.controller(self.first_emb)
             else:
                 cont_out = self.cont_out_from_trajectory(trajectory, training=True)
 
@@ -440,7 +461,8 @@ class ENAS(nn.Module):
             value = self.value_head(cont_out.squeeze())
             # value_loss += F.mse_loss(value, score)
             values.append(value)
-            probas = self.softmaxs[decision_idx](cont_out).squeeze()
+            logits = self.softmaxs[decision_idx](cont_out).squeeze()
+            probas = F.softmax(logits)
 
             policies.append(probas)
             search_probas.append(sp)
@@ -475,7 +497,9 @@ class ENAS(nn.Module):
         value_div = 5e4
         dist_div = 5e3  #5e3 is good
 
-        value_loss = -torch.log(1 - torch.abs(scores - values)).sum()
+        # value_loss = -torch.log(1 - torch.abs(scores - values)).sum()
+        ones = torch.ones(len(scores)).unsqueeze(0)        
+        value_loss = -ones.mm(torch.log(1 - torch.abs(scores - values)).unsqueeze(-1))
         value_loss /= value_div         
         # value_loss /= 10       
 
@@ -489,9 +513,23 @@ class ENAS(nn.Module):
         #can we tak the derivative of abs?we can try
         # dist_matching_loss = -(search_probas**2).unsqueeze(0).mm(torch.log(1 - \
         #  torch.abs(search_probas - policies).unsqueeze(-1)))
+        # dist_matching_loss = -torch.log(1 - \
+        #  torch.abs(search_probas - policies).unsqueeze(-1)).sum()
+        ones = torch.ones(len(search_probas)).unsqueeze(0)                
 
-        dist_matching_loss = -(search_probas**2).unsqueeze(0).mm(torch.log(1 - \
+        dist_matching_loss = -ones.mm(torch.log(1 - \
          torch.abs(search_probas - policies).unsqueeze(-1)))
+
+        # print("*"*10)
+        # print("*"*10)
+        # print("*"*10)
+        # print("Dist diff mean: ", torch.abs(search_probas - policies).mean())
+        # print("*"*10)
+        # print("*"*10)
+        # print("*"*10)
+
+        # dist_matching_loss = -(search_probas**2).unsqueeze(0).mm(torch.log(1 - \
+        #  torch.abs(search_probas - policies).unsqueeze(-1)))
 
         dist_matching_loss /= dist_div    
         # dist_matching_loss /= self.batch_size
@@ -512,7 +550,7 @@ class ENAS(nn.Module):
 
         return total_loss
 
-    def fastai_train(self, controller, memories, batch_size, num_cycles=12, epochs=5):
+    def fastai_train(self, controller, memories, batch_size, num_cycles=10, epochs=1):
         self.memories = memories
         self.batch_size = batch_size
         if (len(memories) < batch_size):
@@ -526,8 +564,8 @@ class ENAS(nn.Module):
         controller_learner.model.real_forward = controller_learner.model.forward
 
         controller_learner.model.forward = lambda x: x
-        controller_learner.fit(0.4, epochs, cycle_len=10, use_clr_beta=(10, 13.68, 0.95, 0.85), 
-            wds=1e-6)
+        controller_learner.fit(2, epochs, cycle_len=num_cycles, use_clr_beta=(10, 13.68, 0.95, 0.85), 
+            wds=1e-4)
 
         controller_learner.model.forward = controller_learner.model.real_forward
 
@@ -579,7 +617,6 @@ class ENAS(nn.Module):
             d_idx = d_d[i]
             a_idx = a_d[i]
             st_idx = st_d[i]
-            sk_idx = sk_d[i]
 
             if i == 0:
                 in_ch = self.CH
@@ -615,7 +652,9 @@ class ENAS(nn.Module):
                             padding=padding),
                             nn.BatchNorm2d(out_channels)])
             arch.append(conv)
-            arch_skips.append(sk[sk_idx])
+            if i > 1:
+                sk_idx = sk_d[i-2]
+                arch_skips.append(sk[sk_idx])
             arch_activations.append(a[a_idx])
 
         arch.append(

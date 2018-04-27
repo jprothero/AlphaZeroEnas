@@ -54,8 +54,11 @@ def create_data_loaders(train_batch_size, test_batch_size):
 
     return trainloader, testloader
 
-def main(max_memories=10000, controller_batch_size=128, num_train_iters=30,
-        train_batch_size=16, test_batch_size=64):
+def main(max_memories=None, controller_batch_size=512, num_train_iters=60,
+        train_batch_size=8, test_batch_size=64): 
+
+    if max_memories is None:
+        max_memories = controller_batch_size*3
     #batch_size=4, num_train_iters=100 is good
     #batch_size=8, num_train_iters=50 is good
     #batch_size=16, num_train_iters=30 has been working well
@@ -122,7 +125,7 @@ def main(max_memories=10000, controller_batch_size=128, num_train_iters=30,
             memory["score"] = score
         memories.extend(new_memories)
 
-        if cnt % 15 == 0:
+        if cnt % 5 == 4:
             memories = memories[-max_memories:]
             print(f"Num memories: {len(memories)}")
             p.dump(memories, open("memories.p", "wb"))

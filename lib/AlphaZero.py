@@ -107,7 +107,7 @@ class AlphaZero:
 
     def backup(self, value):
         value += 1
-        value *= .5
+        value /= 2
         #oh so the issue is that for the first one we skip it totally
         while self.curr_node["parent"] is not None:
             self.update_node(value)
@@ -127,8 +127,10 @@ class AlphaZero:
         self.curr_node["Q"] = self.curr_node["W"]/self.curr_node["N"]
 
     def add_dirichlet_noise(self, policy):
-        nu = np.random.dirichlet([self.alpha] * len(policy))
-        policy = policy*(1-self.epsilon) + nu*self.epsilon
+        alpha = 10/len(policy)
+        epsilon = 0.25
+        nu = np.random.dirichlet([alpha] * len(policy))
+        policy = policy*(1-epsilon) + nu*epsilon
 
         return policy
 

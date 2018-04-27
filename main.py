@@ -25,7 +25,7 @@ import pickle as p
 
 from random import shuffle
 
-def create_data_loaders(batch_size):
+def create_data_loaders(train_batch_size, test_batch_size):
     transform_train = transforms.Compose([
     transforms.RandomCrop(32, padding=4),
     transforms.RandomHorizontalFlip(),
@@ -45,16 +45,20 @@ def create_data_loaders(batch_size):
     trainset = torchvision.datasets.CIFAR10(
         root=path, train=True, download=True, transform=transform_train)
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=batch_size, shuffle=True, num_workers=0)
+        trainset, batch_size=train_batch_size, shuffle=True, num_workers=0)
 
     testset = torchvision.datasets.CIFAR10(
         root=path, train=False, transform=transform_test)
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=batch_size, shuffle=False, num_workers=0)
+        testset, batch_size=test_batch_size, shuffle=False, num_workers=0)
 
     return trainloader, testloader
 
-def main(batch_size=64, max_memories=10000, controller_batch_size=128):
+def main(max_memories=10000, controller_batch_size=128, num_train_iters=30,
+        train_batch_size=16, test_batch_size=64):
+    #batch_size=4, num_train_iters=100 is good
+    #batch_size=8, num_train_iters=50 is good
+    #batch_size=16, num_train_iters=30 has been working well
     try:
         memories = p.load(open("memories.p", "rb"))
         print(f"Successfully loaded {len(memories)} memories")
@@ -62,7 +66,7 @@ def main(batch_size=64, max_memories=10000, controller_batch_size=128):
         print("Error loading memories: ", e)
         memories = []
 
-    trainloader, testloader = create_data_loaders(batch_size)
+    trainloader, testloader = create_data_loaders(train_batch_size, test_batch_size)
     controller = ENAS()
     try:
         state_dict = torch.load('controller.p')
@@ -73,46 +77,59 @@ def main(batch_size=64, max_memories=10000, controller_batch_size=128):
         pass
     controller.eval()
 
-    # controller_optim = optim.Adam(params=controller.parameters(), lr=.2, weight_decay=1e-6)
-    controller_optim = optim.SGD(params=controller.parameters(), lr=.2, momentum=.8)
+    controller_optim = optim.SGD(params=controller.parameters(), lr=.4, momentum=.9)
 
     cnt = 0
     while True:
         print("Iteration {}".format(cnt))
         arch, new_memories = controller.make_architecture()
-        arch_optim = optim.SGD(arch.parameters(), lr=0.7, momentum=.9) #.08
+        # arch_optim = optim.SGD(arch.parameters(), lr=0.007, momentum=.9) #.01
+        arch_optim = optim.Adam(arch.parameters(), lr=5e-5) #5e-5
         arch.train()
 
-        for inputs, targets in trainloader:
+        for i, (inputs, targets) in enumerate(trainloader):
             arch_optim.zero_grad()
             outputs = arch(inputs)
             train_loss = F.nll_loss(outputs, targets)
+            if i == 0:
+                first_loss = train_loss.item()
             train_loss.backward()
             arch_optim.step()
-            break
+            if i > num_train_iters:
+                break
 
-        arch.eval()
-        for inputs, targets in testloader:
-            outputs = arch(inputs)
-            pred = outputs.data.max(1, keepdim=True)[1]
-            correct = pred.eq(targets.data.view_as(pred)).float().sum()
-            score = correct/len(targets)
-            print(f"Score: {score}")
-            score *= 2
-            score -= 1
-            for memory in new_memories:
-                memory["score"] = score
-            memories.extend(new_memories)
-            break
+        final_loss = train_loss.item()
 
-        if cnt % 30 == 0:
+        print(f"First loss: {first_loss}, Final loss: {final_loss}")
+        if final_loss > first_loss:
+        # if final_loss > first_loss*.97:
+            print(f"Score: 0")
+            score = -1
+        else:
+            arch.eval()
+            for inputs, targets in testloader:
+                outputs = arch(inputs)
+                pred = outputs.data.max(1, keepdim=True)[1]
+                correct = pred.eq(targets.data.view_as(pred)).float().sum()
+                score = correct/len(targets)
+                print(f"Score: {score}")
+                score *= 2
+                score -= 1
+                score = score.item()
+                break
+
+        for memory in new_memories:
+            memory["score"] = score
+        memories.extend(new_memories)
+
+        if cnt % 15 == 0:
             memories = memories[-max_memories:]
             print(f"Num memories: {len(memories)}")
             p.dump(memories, open("memories.p", "wb"))
             p.dump(memories, open("memories1.p", "wb"))            
             print("Successfully saved memories")
 
-        if cnt % 30 == 0 and len(memories) > 128:
+        if cnt % 15 == 0 and len(memories) > len(memories)//10:
             # scores = []
             # for memory in memories:
             #     scores.append(memory["score"])
@@ -127,7 +144,7 @@ def main(batch_size=64, max_memories=10000, controller_batch_size=128):
             # for memory, score in zip(temp_memories, scores):
             #     memory["score"] = score
 
-            controller.fastai_train(controller, memories, batch_size)
+            controller.fastai_train(controller, memories, controller_batch_size)
             # normal_train(controller, controller_optim, memories[:128], controller_batch_size)
             torch.save(controller.state_dict(), 'controller1.p')
             torch.save(controller.state_dict(), 'controller.p')

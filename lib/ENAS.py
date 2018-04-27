@@ -40,8 +40,8 @@ class FastaiWrapper():
         return self.model
 
 class ENAS(nn.Module):
-    def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=4, lstm_size=70, 
-            num_lstm_layers=4, value_head_dims=64):
+    def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=4, lstm_size=100, 
+            num_lstm_layers=4, value_head_dims=100):
         super(ENAS, self).__init__()
         self.num_classes = num_classes
         self.R = R
@@ -53,27 +53,40 @@ class ENAS(nn.Module):
         
         self.validating = False
         
-        self.controller = QRNN(lstm_size, lstm_size,
-                               num_layers=num_lstm_layers)
+        # self.controller = QRNN(lstm_size, lstm_size,
+        #                        num_layers=num_lstm_layers)
+
+        controller_layers = []
+        for _ in range(5):
+            controller_layers.extend([
+            # nn.Conv1d(lstm_size, lstm_size, 1)
+            nn.Linear(lstm_size, lstm_size)
+            , LayerNorm(lstm_size)
+            , nn.Tanh()])
+
+        self.controller = nn.Sequential(*controller_layers)
 
         self.fake_data = self.create_fake_data()
 
         self.value_head = nn.Sequential(*[
             nn.Linear(lstm_size, value_head_dims)
             , LayerNorm(value_head_dims)
-            , nn.ReLU()
+            , nn.Tanh()
             , nn.Linear(value_head_dims, value_head_dims)
             , LayerNorm(value_head_dims)      
-            , nn.ReLU()
+            , nn.Tanh()
+            , nn.Linear(value_head_dims, value_head_dims)
+            , LayerNorm(value_head_dims)      
+            , nn.Tanh()
             , nn.Linear(value_head_dims, 1)
             , nn.Tanh()
         ])
 
         self.filters = [
-            16,
+            # 16,
             32,
             64,
-            # 128,
+            128,
         ]
 
         self.groups = []
@@ -88,26 +101,27 @@ class ENAS(nn.Module):
         self.kernels = [
             1,
             3,
+            5,            
         ]
 
         self.dilations = [
             1,
             2,
-            # 4,
+            4,
         ]
 
         self.activations = [
-            # nn.Softmax(dim=1),
+            nn.Softmax(dim=1),
             nn.Tanh(),
-            # nn.Sigmoid(),
+            nn.Sigmoid(),
             nn.ReLU(),
-            # lambda x: x
+            lambda x: x
         ]
 
         self.strides = [
             1,
             2,
-            # 3
+            3
         ]
 
         self.skips = [i for i in range(num_layers-1)]
@@ -180,7 +194,7 @@ class ENAS(nn.Module):
 
         self.starting_indices = []
 
-        self.first_emb = nn.Parameter(torch.rand(lstm_size)-.5).view(1, 1, -1)
+        self.first_emb = nn.Parameter(torch.rand(lstm_size)-.5)#.view(1, 1, -1)
         softmaxs = []
         embeddings = []
         starting_idx = 0
@@ -316,13 +330,15 @@ class ENAS(nn.Module):
         value = value.detach().data.numpy()
         az.backup(value)
 
-    def make_architecture(self, num_sims=30):
+    def make_architecture(self, num_sims=40):
         self.eval()
         self.filter_chosen = False
         new_memories = []
         az = AlphaZero(max_depth=self.num_layers*len(self.decision_list))
 
-        cont_out = self.controller(self.first_emb)[0].squeeze(0)
+        # cont_out = self.controller(self.first_emb)[0].squeeze(0)
+        set_trace()
+        cont_out = self.controller(self.first_emb.view(-1, 1, 1))[0].squeeze(0)
 
         orig_cont_out = cont_out.clone()
 
@@ -413,11 +429,12 @@ class ENAS(nn.Module):
             decision_idx = memory["decision_idx"]
 
             if len(trajectory) == 0:
-                cont_out = self.controller(self.first_emb)[0].squeeze(0)
+                # cont_out = self.controller(self.first_emb)[0].squeeze(0)
+                cont_out = self.controller(self.first_emb.view(-1, 1, 1))[0].squeeze(0)
             else:
                 cont_out = self.cont_out_from_trajectory(trajectory, training=True)
 
-            scores.append(score.unsqueeze(0))
+            scores.append(score)
             # if self.training:
             #     self.value_head.register_hook(print)
             value = self.value_head(cont_out.squeeze())
@@ -431,7 +448,7 @@ class ENAS(nn.Module):
         search_probas = Variable(search_probas)
 
         values = torch.cat(values)
-        scores = torch.cat(scores)
+        scores = torch.tensor(scores)
         # # if self.training:
         # #     values.register_hook(print)
 
@@ -541,7 +558,7 @@ class ENAS(nn.Module):
         d_d = decisions["dilations"]
         a_d = decisions["activations"]
         st_d = decisions["strides"]
-        # sk_d = decisions["skips"]
+        sk_d = decisions["skips"]
 
         f = self.filters
         g = self.groups
@@ -549,10 +566,10 @@ class ENAS(nn.Module):
         d = self.dilations
         a = self.activations
         st = self.strides
-        # sk = self.skips
+        sk = self.skips
 
         arch = []
-        # arch_skips = []
+        arch_skips = []
         arch_activations = []
         f_idx = f_d[0]
 
@@ -562,7 +579,7 @@ class ENAS(nn.Module):
             d_idx = d_d[i]
             a_idx = a_d[i]
             st_idx = st_d[i]
-            # sk_idx = sk_d[i]
+            sk_idx = sk_d[i]
 
             if i == 0:
                 in_ch = self.CH
@@ -598,7 +615,7 @@ class ENAS(nn.Module):
                             padding=padding),
                             nn.BatchNorm2d(out_channels)])
             arch.append(conv)
-            # arch_skips.append(sk[sk_idx])
+            arch_skips.append(sk[sk_idx])
             arch_activations.append(a[a_idx])
 
         arch.append(
@@ -615,19 +632,19 @@ class ENAS(nn.Module):
                 self.arch = nn.ModuleList(arch)
 
             def forward(self, input):
-                # skips = np.array(arch_skips).astype("float32")
+                skips = np.array(arch_skips).astype("float32")
                 x = input
                 layer_outputs = []
                 for i, (layer, actv) in enumerate(zip(self.arch, arch_activations)):
-                    # if i > 1:
-                    #     skips = skips[:i]
-                    #     skips_total = (1.0 * skips.sum())
-                    #     if skips_total != 0:
-                    #         skips /= skips_total
-                    #         skip_attention = 0
-                    #         for k, s in enumerate(skips):
-                    #             skip_attention += layer_outputs[k]*float(s) 
-                    #         x = (skip_attention + x) / 2
+                    if i > 1:
+                        skips = skips[:i]
+                        skips_total = (1.0 * skips.sum())
+                        if skips_total != 0:
+                            skips /= skips_total
+                            skip_attention = 0
+                            for k, s in enumerate(skips):
+                                skip_attention += layer_outputs[k]*float(s) 
+                            x = (skip_attention + x) / 2
                     
                     x = actv(layer(x))
                     layer_outputs.append(x)

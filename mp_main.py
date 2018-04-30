@@ -56,8 +56,8 @@ def create_data_loaders(train_batch_size, test_batch_size):
     return trainloader, testloader
 
 def main(max_memories=1e5, controller_batch_size=512, num_train_iters=25,
-        train_batch_size=32, test_batch_size=64, num_archs=2, num_concurrent=2, 
-        macro_max_workers=2, micro_max_workers=2, num_sims=2): 
+        train_batch_size=32, test_batch_size=64, num_archs=64, num_concurrent=2, 
+        macro_max_workers=None, micro_max_workers=64, num_sims=2): 
 
     if max_memories is None:
         max_memories = controller_batch_size*3

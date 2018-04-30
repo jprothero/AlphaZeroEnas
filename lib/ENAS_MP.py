@@ -58,7 +58,7 @@ def skip_mask(layer_idx, probas):
 
 class ENAS(nn.Module):
     def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=4, controller_dims=70, 
-            num_controller_layers=5, value_head_dims=70, num_value_layers=5):
+            num_controller_layers=5, value_head_dims=70, num_value_layers=5, cuda=torch.cuda.is_available()):
         super(ENAS, self).__init__()
         self.num_classes = num_classes
         self.R = R
@@ -67,6 +67,7 @@ class ENAS(nn.Module):
         self.num_layers = num_layers
         self.lstm_size = controller_dims
         self.num_controller_layers = num_controller_layers
+        self.has_cuda = cuda
         
         self.validating = False
         
@@ -264,6 +265,8 @@ class ENAS(nn.Module):
             #MCTSnet trained with alpha zero
 
             weights = torch.from_numpy(np.array(weights_list)).float().unsqueeze(-1)
+            if self.has_cuda:
+                weights = weights.cuda()
             weights = weights.view(1, -1)
             logits = torch.cat(logits)
 

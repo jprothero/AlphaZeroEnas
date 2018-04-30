@@ -73,6 +73,9 @@ def main(max_memories=1e5, controller_batch_size=512, num_train_iters=25,
 
     trainloader, testloader = create_data_loaders(train_batch_size, test_batch_size)
     controller = ENAS()
+    if controller.has_cuda:
+        controller = controller.cuda()
+
     try:
         state_dict = torch.load('controller.p')
         controller.load_state_dict(state_dict)
@@ -81,7 +84,7 @@ def main(max_memories=1e5, controller_batch_size=512, num_train_iters=25,
         print("Error loading controller weights: ", e)
         pass
 
-    controller_optim = optim.SGD(params=controller.parameters(), lr=.4, momentum=.9)
+    # controller_optim = optim.SGD(params=controller.parameters(), lr=.4, momentum=.9)
 
     make_arch_hps = {
         "num_archs": num_archs
@@ -114,6 +117,8 @@ def main(max_memories=1e5, controller_batch_size=512, num_train_iters=25,
             arch = controller.create_arch_from_decisions(decisions)
             arch_optim = optim.Adam(arch.parameters(), lr=5e-5) #5e-5
             arch.train()
+            if controller.has_cuda:
+                arch = arch.cuda()
 
             for i, (inputs, targets) in enumerate(trainloader):
                 arch_optim.zero_grad()

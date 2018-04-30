@@ -56,7 +56,8 @@ def create_data_loaders(train_batch_size, test_batch_size):
     return trainloader, testloader
 
 def main(max_memories=1e5, controller_batch_size=512, num_train_iters=25,
-        train_batch_size=32, test_batch_size=64, max_workers=None, num_archs=4): 
+        train_batch_size=32, test_batch_size=64, num_archs=2, num_concurrent=2, 
+        macro_max_workers=2, micro_max_workers=2, num_sims=2): 
 
     if max_memories is None:
         max_memories = controller_batch_size*3
@@ -82,17 +83,33 @@ def main(max_memories=1e5, controller_batch_size=512, num_train_iters=25,
 
     controller_optim = optim.SGD(params=controller.parameters(), lr=.4, momentum=.9)
 
+    make_arch_hps = {
+        "num_archs": num_archs
+        , "num_sims": num_sims
+        , "max_workers": micro_max_workers
+    }
+
     cnt = 0
     while True:    
         print("Iteration {}".format(cnt))
         controller.eval()
-        # with PPExec(max_workers) as executor:
-        #     new_memories = list(executor.map(controller.make_architecture_mp, range(num_archs)))
 
-        all_new_memories = controller.make_architecture_mp(num_archs)
+        if num_concurrent > 1:
+            all_new_memories = []
+            with PPExec(macro_max_workers) as executor:
+                list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
+                    [make_arch_hps for _ in range(num_concurrent)]))
 
-        for new_memories in all_new_memories:
-            decisions = new_memories["decisions"]
+            #so the above return [[memories, memories], [memories, memories]]
+            #and what we want is [memories, memories, memories, memories]
+            for lst in list_of_all_new_memories:
+                for sub_list in lst:
+                    all_new_memories.append(sub_list)
+        else:
+            all_new_memories = controller.make_architecture_mp(make_arch_hps)
+
+        for i, new_memories in enumerate(all_new_memories):
+            decisions = new_memories[-1]["decisions"]
 
             arch = controller.create_arch_from_decisions(decisions)
             arch_optim = optim.Adam(arch.parameters(), lr=5e-5) #5e-5

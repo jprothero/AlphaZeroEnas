@@ -47,6 +47,15 @@ class FastaiWrapper():
 #https://arxiv.org/pdf/1704.00325.pdf
 #parallel MCTS paper, good resource
 
+def lambda_identity(x): return x
+def lambda_false(x): return False
+def filter_condition(layer_idx): return False if layer_idx == 0 else True
+def skip_condition(layer_idx): return False if layer_idx > 1 else True
+def skip_mask(layer_idx, probas):
+    probas[layer_idx-1:] = 0
+    probas /= (1.0 * probas.sum())
+    return probas
+
 class ENAS(nn.Module):
     def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=4, controller_dims=70, 
             num_controller_layers=5, value_head_dims=70, num_value_layers=5):
@@ -61,21 +70,9 @@ class ENAS(nn.Module):
         
         self.validating = False
         
-        # self.controller = QRNN(lstm_size, lstm_size,
-        #                        num_layers=num_lstm_layers)
-
-        #so basically we can split the different stages of the algorithm 
-        #into different functions for a pipe,
-        #and each one needs to happen before the last one finishes
-        #so we can select, expand, evaluate, and backup
-        #and I guess we have a main process that brings that all together?
-        #depends how we implement it
-        #I'm going to make that a separate branch to try that out
-
         controller_layers = []
         for _ in range(num_controller_layers):
             controller_layers.extend([
-            # nn.Conv1d(lstm_size, lstm_size, 1)
             nn.Linear(controller_dims, controller_dims)
             , LayerNorm(controller_dims)
             , nn.Tanh()])
@@ -103,8 +100,6 @@ class ENAS(nn.Module):
         self.filters = [
             16,
             32,
-            # 64,
-            # 128,
         ]
 
         self.groups = []
@@ -133,7 +128,7 @@ class ENAS(nn.Module):
             nn.Tanh(),
             nn.Sigmoid(),
             nn.ReLU(),
-            lambda x: x
+            lambda_identity
         ]
 
         self.strides = [
@@ -175,18 +170,6 @@ class ENAS(nn.Module):
                 nn.Linear(controller_dims, self.total_embeddings), 
             ])
 
-        def skip_condition(layer_idx):
-            if layer_idx > 1:
-                return False
-            else:
-                return True
-
-        def filter_condition(layer_idx):
-            if layer_idx == 0:
-                return False
-            else:
-                return True
-
         self.decision_conditions = dict()
 
         for name in self.decision_list:
@@ -195,14 +178,9 @@ class ENAS(nn.Module):
             elif name is "filters":
                 self.decision_conditions[name] = filter_condition
             else:
-                self.decision_conditions[name] = lambda x: False
+                self.decision_conditions[name] = lambda_false
 
         self.mask_conditions = dict()
-
-        def skip_mask(layer_idx, probas):
-            probas[layer_idx-1:] = 0
-            probas /= (1.0 * probas.sum())
-            return probas
 
         for name in self.decision_list:
             if name is "skips":
@@ -265,10 +243,25 @@ class ENAS(nn.Module):
             weights_list = []
             for _, idx in enumerate(indices):
                 embeddings.append(self.embeddings[idx].unsqueeze(0))
+                if len(trajectory) == 1:
+                    return embeddings[-1].view(1, 1, -1)
                 logits.append(self.emb_merge_pre_softmax(self.embeddings[idx])[indices].unsqueeze(0))
                 weights_list.append(weights[idx])
 
             #this part isn't really parallelizable/batchable very easily
+            #so let me think about this for a bit.
+            #what the capsnets offer maybe is an alternative to conv nets
+            #it also is an interesting target for an ENAS, since maybe we can design a better
+            #or more efficient routing system or something.
+            #but it is good to keep in mind that they will probably continue to get more efficient
+            #for what I care about right now, which is trying to get ENAS with alpha zero working,
+            #it doesnt really help. it could maybe help for the mcts gan idea or whatever,
+            #but again capsnets are fairly experimental. we can consider it
+            #but for now I think the trajectory is get_mp working -> get gpu working ->
+            #see if we can make anything interesting / get it to train -> rent a paperspace
+            #and test is more extensively then depending on the performance we can put
+            #the project on the backburner, or do some improvements, such as trying to do
+            #MCTSnet trained with alpha zero
 
             weights = torch.from_numpy(np.array(weights_list)).float().unsqueeze(-1)
             weights = weights.view(1, -1)
@@ -277,8 +270,8 @@ class ENAS(nn.Module):
             probas = F.softmax(logits)
             probas = weights.mm(probas)
 
-            probas2 = F.softmax(logits)*weights
-            probas2 = probas2.sum(0)
+            # probas2 = F.softmax(logits)*weights
+            # probas2 = probas2.sum(0)
 
             # assert (probas == probas2).all()
 
@@ -289,48 +282,9 @@ class ENAS(nn.Module):
 
             emb = final_emb.view(1, 1, -1)
         else:
-            emb = az.orig_emb
+            emb = az.orig_emb.view(1, 1, -1)
 
         return emb
-
-    # def simulate(self, az, cont_out):
-    #     if az.curr_node["d"] >= az.max_depth-1:
-    #         return
-
-    #     trajectory = az.select(self.starting_indices, self.decision_list)
-
-    #     depth = az.curr_node["d"]
-    #     layer_idx = depth // len(self.decision_list)
-    #     decision_idx = depth % len(self.decision_list)
-    #     decision_name = self.decision_list[decision_idx]
-
-    #     while True:
-    #         skip_curr = self.check_condition(az, layer_idx, decision_name)
-    #         if not skip_curr:
-    #             break
-    #         else:
-    #             az.curr_node["d"] += 1
-    #             depth = az.curr_node["d"]
-    #             layer_idx = depth // len(self.decision_list)
-    #             decision_idx = depth % len(self.decision_list)
-    #             decision_name = self.decision_list[decision_idx]
-
-    #     if len(trajectory) > 0:
-    #         cont_out = self.cont_out_from_trajectory(trajectory)
-
-    #     logits = self.softmaxs[decision_idx](cont_out).squeeze()
-    #     probas = F.softmax(logits)
-
-    #     probas_np = probas.detach().data.numpy()
-
-    #     if self.mask_conditions[decision_name] is not None:
-    #         probas_np = self.mask_conditions[decision_name](layer_idx, probas_np)
-
-    #     az.expand(probas_np)
-
-    #     value = self.value_head(cont_out.squeeze())
-    #     value = value.detach().data.numpy()
-    #     az.backup(value)
 
     def get_values(self, alpha_zeros):
         cont_outs = []
@@ -342,10 +296,13 @@ class ENAS(nn.Module):
         values = self.value_head(cont_outs.squeeze())
 
         for az, value in zip(alpha_zeros, values):
-            az.value = value.detach().data.numpy()
+            az.value = value.detach().item()
+
+        return az
 
     def backup(self, az):
         az.backup(az.value)
+        return az
 
     def expand(self, az):
         probas = az.probas
@@ -360,37 +317,41 @@ class ENAS(nn.Module):
 
         az.expand(probas)
 
+        return az
+
     def evaluate(self, alpha_zeros):
-        trajectories = []
+        # trajectories = []
         decision_indices = []
 
         decision_indices_lists = [[] for _ in range(len(self.decision_list))]
 
         for i, az in enumerate(alpha_zeros):
-            trajectories.append(az.trajectory)
+            # trajectories.append(az.trajectory)
             decision_indices_lists[az.decision_idx].append(i)
         
-        with PPE(self.max_workers) as executor:
-            embeddings = list(executor.map(self.embedding_from_trajectory, trajectories))
+        # with PPE(self.max_workers) as executor:
+        #     embeddings = list(executor.map(self.embedding_from_trajectory, alpha_zeros))
+        embeddings = [self.embedding_from_trajectory(az) for az in alpha_zeros]
 
         embeddings = torch.cat(embeddings)
 
         cont_outs = self.controller(embeddings)
 
         for i, decision_indices in enumerate(decision_indices_lists):
-            specific_cont_outs = cont_outs[decision_indices]
-            logits = self.softmaxs[i](specific_cont_outs)
-            probas = F.softmax(logits)
-
-            for az in alpha_zeros[decision_indices]:
-                az.probas = probas.detach().data.numpy()
+            if len(decision_indices) > 0: 
+                specific_cont_outs = cont_outs[decision_indices]
+                logits = self.softmaxs[i](specific_cont_outs)
+                probas = F.softmax(logits)
+                azs = [alpha_zeros[i] for i in decision_indices]
+                for az, p in zip(azs, probas):
+                    az.probas = p.squeeze().detach().data.numpy()
 
         for az, cont_out in zip(alpha_zeros, cont_outs):
             az.cont_out = cont_out
         
     def simulate(self, az):
-        if az.curr_node["d"] >= az.max_depth-1:
-            return
+        if az.curr_node["d"] > az.max_depth-1: #was >=
+            return az
 
         trajectory = az.select(self.starting_indices, self.decision_list)
 
@@ -413,15 +374,20 @@ class ENAS(nn.Module):
         az.trajectory = trajectory
         az.decision_idx = decision_idx
 
+        return az
+
     def get_memories(self, az):
-        for memory in az.new_memories:
-            memory["decisions"] = az.decisions
+        az.new_memories[-1]["decisions"] = az.decisions
+        # for memory in az.new_memories:
+        #     memory["decisions"] = az.decisions
 
         return az.new_memories
 
     def reset_to_root(self, az):
         while az.curr_node["parent"] is not None:
             az.curr_node = az.curr_node["parent"]
+
+        return az
     
     def move_choice(self, az):
         d = az.curr_node["d"]
@@ -440,21 +406,34 @@ class ENAS(nn.Module):
         })
 
         az.real_trajectory.append(emb_idx)
-        az.orig_emb = self.embedding_from_trajectory(az.real_trajectory)
+        az.trajectory = az.real_trajectory
+        az.orig_emb = self.embedding_from_trajectory(az)
 
         if d < az.max_depth-1:
-            return az
+            az.done = False
+        else:
+            az.done = True
 
-    def make_architecture_mp(self, num_architectures, num_sims=3, max_workers=None):
+        #hmmm.... can we only return one?
+        #like what if we only return done ones. 
+        #but the issue is how do we differentiate which ones are or are not done
+        #I guess we could probably return done ones here, and not done ones in the next step
+        #then update.
+
+        return az
+
+    def make_architecture_mp(self, kwargs):
+        num_archs, num_sims, max_workers = \
+            kwargs["num_archs"], kwargs["num_sims"], kwargs["max_workers"]
         self.max_workers = max_workers
-        all_alpha_zeros = [AlphaZero(max_depth=self.num_layers*len(self.decision_list)) for
-         _ in range(num_architectures)]
+        alpha_zeros = [AlphaZero(max_depth=self.num_layers*len(self.decision_list)) for
+         _ in range(num_archs)]
 
         decisions = dict()
         for name in self.decision_list:
             decisions[name] = []
 
-        for az in all_alpha_zeros:
+        for az in alpha_zeros:
             az.orig_emb = self.first_emb
             az.real_trajectory = []
             az.decisions = dc(decisions)
@@ -462,34 +441,61 @@ class ENAS(nn.Module):
 
         del decisions
 
-        alpha_zeros = all_alpha_zeros
+        final_alpha_zeros = []
 
+        i = 0
         while True:
-            with PPE(max_workers) as executor:
-                executor.map(self.simulate, alpha_zeros)
+            print(f"Choice {i}")
+            for j in range(num_sims):
+                print(f"Sim {j}")
+                with PPE(max_workers) as executor:
+                    alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
 
-            self.evaluate(alpha_zeros)
+                # if j > 0:
+                #     set_trace()
+                self.evaluate(alpha_zeros)
 
-            with PPE(max_workers) as executor:
-                executor.map(self.expand, alpha_zeros)
+                with PPE(max_workers) as executor:
+                    alpha_zeros = list(executor.map(self.expand, alpha_zeros))
 
-            self.get_values(alpha_zeros)
+                self.get_values(alpha_zeros)
 
-            with PPE(max_workers) as executor:
-                executor.map(self.backup, alpha_zeros)
+                with PPE(max_workers) as executor:
+                    alpha_zeros = list(executor.map(self.backup, alpha_zeros))
 
-            with PPE(max_workers) as executor:
-                executor.map(self.reset_to_root, alpha_zeros)
+                # for az in alpha_zeros:
+                #     assert az.curr_node["parent"] is None
 
-            with PPE(max_workers) as executor:
-                #return not done alpha zeros
-                alpha_zeros = list(executor.map(self.move_choice, alpha_zeros))
+                # with PPE(max_workers) as executor:
+                #     alpha_zeros = list(executor.map(self.reset_to_root, alpha_zeros))
+                
 
-            if alpha_zeros is None or len(alpha_zeros) == 0:
+            # with PPE(max_workers) as executor:
+            #     alpha_zeros = list(executor.map(self.reset_to_root, alpha_zeros))
+
+            # for az in alpha_zeros:
+            #     assert az.curr_node["parent"] is None
+
+            not_done_alpha_zeros = []
+            for az in alpha_zeros:
+                az = self.move_choice(az)
+                if az.done:
+                    final_alpha_zeros.append(az)
+                else:
+                    not_done_alpha_zeros.append(az)
+
+            alpha_zeros = not_done_alpha_zeros
+
+            i += 1
+            
+            if len(alpha_zeros) == 0:
                 break
 
         with PPE(max_workers) as executor:
-            new_memories = list(executor.map(self.get_memories, all_alpha_zeros))
+            new_memories = list(executor.map(self.get_memories, final_alpha_zeros))
+
+        #so I am returning a list of memories
+        #[memories, memories]
 
         return new_memories
 

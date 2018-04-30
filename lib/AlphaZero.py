@@ -45,8 +45,8 @@ class AlphaZero:
 
             #reenable these
             if visits_sum == 0:
-                set_trace()
-            #     idx = np.argmax(visits)
+                print("WARNING: visits_sum is 0")
+                idx = np.argmax(visits)
             else:
                 # set_trace()
 
@@ -112,10 +112,10 @@ class AlphaZero:
     def backup(self, value):
         value += 1
         value /= 2
-        #oh so the issue is that for the first one we skip it totally
+        
         while self.curr_node["parent"] is not None:
             self.update_node(value)
-
+            
             self.update_uct()
             
             self.curr_node = self.curr_node["parent"]

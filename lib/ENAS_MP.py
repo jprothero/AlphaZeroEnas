@@ -9,13 +9,13 @@ from ipdb import set_trace
 from .AlphaZero import AlphaZero
 from random import sample
 
-from .fastai.imports import *
-from .fastai.transforms import *
-from .fastai.learner import *
-from .fastai.model import *
-from .fastai.dataset import *
-from .fastai.sgdr import *
-from .fastai.plots import *
+from fastai.imports import *
+from fastai.transforms import *
+from fastai.learner import *
+from fastai.model import *
+from fastai.dataset import *
+from fastai.sgdr import *
+from fastai.plots import *
 
 from copy import deepcopy as dc
 

@@ -73,8 +73,8 @@ def main(max_memories=1e5, controller_batch_size=512, num_train_iters=25,
 
     trainloader, testloader = create_data_loaders(train_batch_size, test_batch_size)
     controller = ENAS()
-    if controller.has_cuda:
-        controller = controller.cuda()
+    # if controller.has_cuda:
+    #     controller = controller.cuda()
 
     try:
         state_dict = torch.load('controller.p')

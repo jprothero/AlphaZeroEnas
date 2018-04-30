@@ -45,7 +45,8 @@ class AlphaZero:
 
             #reenable these
             if visits_sum == 0:
-                idx = np.argmax(visits)
+                set_trace()
+            #     idx = np.argmax(visits)
             else:
                 # set_trace()
 

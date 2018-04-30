@@ -17,7 +17,9 @@ from .fastai.dataset import *
 from .fastai.sgdr import *
 from .fastai.plots import *
 
-from copy import deepcopy as c
+from copy import deepcopy as dc
+
+from concurrent.futures import ProcessPoolExecutor as PPE
 
 # https://stackoverflow.com/questions/8277715/multiprocessing-in-a-pipeline-done-right
 #good multiprocessing/pipeline resource
@@ -237,185 +239,259 @@ class ENAS(nn.Module):
         condition = self.decision_conditions[decision_name]
         return condition(layer_idx)
 
-    def cont_out_from_trajectory(self, trajectory, training=False):
-        indices = []
-        weights = dict()
-        seen = dict()
+    def embedding_from_trajectory(self, az):
+        trajectory = az.trajectory
+        if len(trajectory) > 0:
+            indices = []
+            weights = dict()
+            seen = dict()
 
-        scaled_one = 1/len(trajectory)
-        for emb_idx in trajectory:
-            try:
-                seen[emb_idx]
-            except:
-                seen[emb_idx] = True
-
+            scaled_one = 1/len(trajectory)
+            for emb_idx in trajectory:
                 try:
-                    weights[emb_idx] += scaled_one
+                    seen[emb_idx]
                 except:
-                    weights[emb_idx] = scaled_one
+                    seen[emb_idx] = True
 
-                indices.append(emb_idx)
+                    try:
+                        weights[emb_idx] += scaled_one
+                    except:
+                        weights[emb_idx] = scaled_one
+
+                    indices.append(emb_idx)
+            
+            logits = []
+            embeddings = []
+            weights_list = []
+            for _, idx in enumerate(indices):
+                embeddings.append(self.embeddings[idx].unsqueeze(0))
+                logits.append(self.emb_merge_pre_softmax(self.embeddings[idx])[indices].unsqueeze(0))
+                weights_list.append(weights[idx])
+
+            #this part isn't really parallelizable/batchable very easily
+
+            weights = torch.from_numpy(np.array(weights_list)).float().unsqueeze(-1)
+            weights = weights.view(1, -1)
+            logits = torch.cat(logits)
+
+            probas = F.softmax(logits)
+            probas = weights.mm(probas)
+
+            probas2 = F.softmax(logits)*weights
+            probas2 = probas2.sum(0)
+
+            # assert (probas == probas2).all()
+
+            probas /= probas.sum() #normalize
+            probas = probas.view(1, -1)
+            embeddings = torch.cat(embeddings)
+            final_emb = probas.mm(embeddings)
+
+            emb = final_emb.view(1, 1, -1)
+        else:
+            emb = az.orig_emb
+
+        return emb
+
+    # def simulate(self, az, cont_out):
+    #     if az.curr_node["d"] >= az.max_depth-1:
+    #         return
+
+    #     trajectory = az.select(self.starting_indices, self.decision_list)
+
+    #     depth = az.curr_node["d"]
+    #     layer_idx = depth // len(self.decision_list)
+    #     decision_idx = depth % len(self.decision_list)
+    #     decision_name = self.decision_list[decision_idx]
+
+    #     while True:
+    #         skip_curr = self.check_condition(az, layer_idx, decision_name)
+    #         if not skip_curr:
+    #             break
+    #         else:
+    #             az.curr_node["d"] += 1
+    #             depth = az.curr_node["d"]
+    #             layer_idx = depth // len(self.decision_list)
+    #             decision_idx = depth % len(self.decision_list)
+    #             decision_name = self.decision_list[decision_idx]
+
+    #     if len(trajectory) > 0:
+    #         cont_out = self.cont_out_from_trajectory(trajectory)
+
+    #     logits = self.softmaxs[decision_idx](cont_out).squeeze()
+    #     probas = F.softmax(logits)
+
+    #     probas_np = probas.detach().data.numpy()
+
+    #     if self.mask_conditions[decision_name] is not None:
+    #         probas_np = self.mask_conditions[decision_name](layer_idx, probas_np)
+
+    #     az.expand(probas_np)
+
+    #     value = self.value_head(cont_out.squeeze())
+    #     value = value.detach().data.numpy()
+    #     az.backup(value)
+
+    def get_values(self, alpha_zeros):
+        cont_outs = []
+        for az in alpha_zeros:
+            cont_outs.append(az.cont_out)
+
+        cont_outs = torch.cat(cont_outs)
+
+        values = self.value_head(cont_outs.squeeze())
+
+        for az, value in zip(alpha_zeros, values):
+            az.value = value.detach().data.numpy()
+
+    def backup(self, az):
+        az.backup(az.value)
+
+    def expand(self, az):
+        probas = az.probas
+
+        depth = az.curr_node["d"]
+        decision_idx = depth % len(self.decision_list)
+        decision_name = self.decision_list[decision_idx]
+        layer_idx = depth // len(self.decision_list)
+
+        if self.mask_conditions[decision_name] is not None:
+            probas = self.mask_conditions[decision_name](layer_idx, probas)
+
+        az.expand(probas)
+
+    def evaluate(self, alpha_zeros):
+        trajectories = []
+        decision_indices = []
+
+        decision_indices_lists = [[] for _ in range(len(self.decision_list))]
+
+        for i, az in enumerate(alpha_zeros):
+            trajectories.append(az.trajectory)
+            decision_indices_lists[az.decision_idx].append(i)
         
-        logits = []
-        embeddings = []
-        weights_list = []
-        for _, idx in enumerate(indices):
-            embeddings.append(self.embeddings[idx].unsqueeze(0))
-            logits.append(self.emb_merge_pre_softmax(self.embeddings[idx])[indices].unsqueeze(0))
-            weights_list.append(weights[idx])
-        weights = torch.from_numpy(np.array(weights_list)).float().unsqueeze(-1)
-        weights = weights.view(1, -1)
-        logits = torch.cat(logits)
+        with PPE(self.max_workers) as executor:
+            embeddings = list(executor.map(self.embedding_from_trajectory, trajectories))
 
-        probas = F.softmax(logits)
-        probas = weights.mm(probas)
-
-        probas2 = F.softmax(logits)*weights
-        probas2 = probas2.sum(0)
-
-        assert (probas == probas2).all()
-
-        probas /= probas.sum() #normalize
-        probas = probas.view(1, -1)
         embeddings = torch.cat(embeddings)
-        final_emb = probas.mm(embeddings)
 
-        final_emb = final_emb.view(1, 1, -1)
+        cont_outs = self.controller(embeddings)
 
-        cont_out = self.controller(final_emb)
+        for i, decision_indices in enumerate(decision_indices_lists):
+            specific_cont_outs = cont_outs[decision_indices]
+            logits = self.softmaxs[i](specific_cont_outs)
+            probas = F.softmax(logits)
 
-        return cont_out
+            for az in alpha_zeros[decision_indices]:
+                az.probas = probas.detach().data.numpy()
 
-    def do_sim(self, az, cont_out):
+        for az, cont_out in zip(alpha_zeros, cont_outs):
+            az.cont_out = cont_out
+        
+    def simulate(self, az):
         if az.curr_node["d"] >= az.max_depth-1:
             return
 
         trajectory = az.select(self.starting_indices, self.decision_list)
-
-        #so we get to a node and we see if we should skip expanding it
-        #this is the same issue as before
-        #if we get to checking if we expand something we shouldnt have expanded,
-        #we already f'd up
-        #so I need to check future nodes
 
         depth = az.curr_node["d"]
         layer_idx = depth // len(self.decision_list)
         decision_idx = depth % len(self.decision_list)
         decision_name = self.decision_list[decision_idx]
 
-        # next_depth = az.curr_node["d"] + 1
-        # next_layer_idx = next_depth // len(self.decision_list)
-        # next_decision_idx = next_depth % len(self.decision_list)
-        # next_decision_name = self.decision_list[next_decision_idx]
-
-        #okay... so right now this is looking ahead to the next decision
-        #and if the next decision is bad, we skip the current one?
-        #that doesnt really make sense
-        #we want to do the current decision, then when the current one is a bad one
-        #we skip it and go to the next one
-
-        #okayyy  I think I see the problem. 
-        #the d for the current node is not getting updated, so there is an error
-
-        # d_plus = 1
         while True:
             skip_curr = self.check_condition(az, layer_idx, decision_name)
-            # if decision_name is "skips" or decision_name is "filters":
-            #     set_trace()
             if not skip_curr:
                 break
             else:
-                #if I do it like this I can always do d+1
                 az.curr_node["d"] += 1
                 depth = az.curr_node["d"]
                 layer_idx = depth // len(self.decision_list)
                 decision_idx = depth % len(self.decision_list)
                 decision_name = self.decision_list[decision_idx]
-                # d_plus += 1
 
-        if len(trajectory) > 0:
-            cont_out = self.cont_out_from_trajectory(trajectory)
+        az.trajectory = trajectory
+        az.decision_idx = decision_idx
 
-        logits = self.softmaxs[decision_idx](cont_out).squeeze()
-        probas = F.softmax(logits)
+    def get_memories(self, az):
+        for memory in az.new_memories:
+            memory["decisions"] = az.decisions
 
-        probas_np = probas.detach().data.numpy()
-        # for name, arr in self.decisions.items():
-        #     if decision_name is name:
-        #         assert len(probas_np) == len(arr)
+        return az.new_memories
 
-        if self.mask_conditions[decision_name] is not None:
-            probas_np = self.mask_conditions[decision_name](layer_idx, probas_np)
+    def reset_to_root(self, az):
+        while az.curr_node["parent"] is not None:
+            az.curr_node = az.curr_node["parent"]
+    
+    def move_choice(self, az):
+        d = az.curr_node["d"]
+        decision_idx = d % len(self.decision_list)
+        starting_idx = self.starting_indices[decision_idx]
+        name = self.decision_list[decision_idx]
+        choice_idx, visits = az.select_real() 
 
-        az.expand(probas_np)
+        emb_idx = starting_idx + choice_idx
+        az.decisions[name].append(choice_idx)
 
-        value = self.value_head(cont_out.squeeze())
-        value = value.detach().data.numpy()
-        az.backup(value)
+        az.new_memories.append({
+            "search_probas": torch.from_numpy(visits).float()
+            , "trajectory": dc(az.real_trajectory)
+            , "decision_idx": decision_idx
+        })
 
-    def make_architecture(self, num_sims=30):
-        self.eval()
-        self.filter_chosen = False
-        new_memories = []
-        az = AlphaZero(max_depth=self.num_layers*len(self.decision_list))
+        az.real_trajectory.append(emb_idx)
+        az.orig_emb = self.embedding_from_trajectory(az.real_trajectory)
 
-        # cont_out = self.controller(self.first_emb)[0].squeeze(0)
-        cont_out = self.controller(self.first_emb)
+        if d < az.max_depth-1:
+            return az
 
-        orig_cont_out = cont_out.clone()
-
-        trajectory = []
+    def make_architecture_mp(self, num_architectures, num_sims=3, max_workers=None):
+        self.max_workers = max_workers
+        all_alpha_zeros = [AlphaZero(max_depth=self.num_layers*len(self.decision_list)) for
+         _ in range(num_architectures)]
 
         decisions = dict()
         for name in self.decision_list:
             decisions[name] = []
 
+        for az in all_alpha_zeros:
+            az.orig_emb = self.first_emb
+            az.real_trajectory = []
+            az.decisions = dc(decisions)
+            az.new_memories = []
+
+        del decisions
+
+        alpha_zeros = all_alpha_zeros
+
         while True:
-            for _ in range(num_sims):
-                self.do_sim(az=az, cont_out=cont_out)
-                while az.curr_node["parent"] is not None:
-                    az.curr_node = az.curr_node["parent"]
-                    cont_out = orig_cont_out.clone()
+            with PPE(max_workers) as executor:
+                executor.map(self.simulate, alpha_zeros)
 
-            while az.curr_node["parent"] is not None:
-                az.curr_node = az.curr_node["parent"]
+            self.evaluate(alpha_zeros)
 
-            d = az.curr_node["d"]
-            decision_idx = d % len(self.decision_list)
-            starting_idx = self.starting_indices[decision_idx]
-            name = self.decision_list[decision_idx]
-            choice_idx, visits = az.select_real() 
+            with PPE(max_workers) as executor:
+                executor.map(self.expand, alpha_zeros)
 
-            # if len(visits) != len(self.decisions[name]):
-            #     set_trace()
-            # assert len(visits) == len(self.decisions[name])
+            self.get_values(alpha_zeros)
 
-            new_memories.append({
-                "search_probas": torch.from_numpy(visits).float()
-                , "trajectory": c(trajectory)
-                , "decision_idx": decision_idx
-            })
+            with PPE(max_workers) as executor:
+                executor.map(self.backup, alpha_zeros)
 
-            emb_idx = starting_idx + choice_idx
-            
-            #so let me think about this. the first time the trajectory would be none
-            #which is correct, we made that choice without using a trajectory
-            #so I think it's correct
-            trajectory.append(emb_idx)
+            with PPE(max_workers) as executor:
+                executor.map(self.reset_to_root, alpha_zeros)
 
-            decisions[name].append(choice_idx)
+            with PPE(max_workers) as executor:
+                #return not done alpha zeros
+                alpha_zeros = list(executor.map(self.move_choice, alpha_zeros))
 
-            orig_cont_out = self.cont_out_from_trajectory(trajectory)
-            
-            cont_out = orig_cont_out.clone()
-
-            if d >= az.max_depth-1:
+            if alpha_zeros is None or len(alpha_zeros) == 0:
                 break
 
-        for memory in new_memories:
-            memory["decisions"] = decisions
+        with PPE(max_workers) as executor:
+            new_memories = list(executor.map(self.get_memories, all_alpha_zeros))
 
-        return self.create_arch_from_decisions(decisions), new_memories
+        return new_memories
 
     def create_fake_data(self):
         classes = ('plane', 'car', 'bird', 'cat', 'deer',

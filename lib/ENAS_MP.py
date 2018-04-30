@@ -426,9 +426,6 @@ class ENAS(nn.Module):
         return az
 
     def make_architecture_mp(self, kwargs):
-        if self.has_cuda:
-            self = self.cuda()
-
         num_archs, num_sims, max_workers = \
             kwargs["num_archs"], kwargs["num_sims"], kwargs["max_workers"]
         self.max_workers = max_workers

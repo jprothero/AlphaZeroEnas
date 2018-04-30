@@ -348,7 +348,11 @@ class ENAS(nn.Module):
                 probas = F.softmax(logits)
                 azs = [alpha_zeros[i] for i in decision_indices]
                 for az, p in zip(azs, probas):
-                    az.probas = p.squeeze().detach().data.numpy()
+                    az.probas = p.squeeze().detach().data
+                    if self.has_cuda:
+                        az.probas = az.probas.cpu()
+                    
+                    az.probas = az.probas.numpy()
 
         for az, cont_out in zip(alpha_zeros, cont_outs):
             az.cont_out = cont_out
@@ -630,7 +634,11 @@ class ENAS(nn.Module):
         # dist_matching_loss /= len(search_probas) #might be wrong
 
         # search_probas_loss /= self.batch_size
-        print(f"Dist: {dist_matching_loss.data.numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
+        if self.has_cuda:
+            print(f"Dist: {dist_matching_loss.data.cpu().numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
+        else:
+            print(f"Dist: {dist_matching_loss.data.numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
+            
         total_loss = dist_matching_loss + value_loss 
         # total_loss = dist_matching_loss
         # total_loss = value_loss

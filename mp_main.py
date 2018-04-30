@@ -57,11 +57,14 @@ def create_data_loaders(train_batch_size, test_batch_size):
     return trainloader, testloader
 
 def main(max_memories=1e5, controller_batch_size=512, num_train_iters=25,
-        train_batch_size=32, test_batch_size=64, num_archs=64, num_concurrent=2, 
-        macro_max_workers=3, micro_max_workers=None, num_sims=20): 
+        train_batch_size=32, test_batch_size=64, num_archs=64, num_concurrent=5, 
+        macro_max_workers=64, micro_max_workers=64, num_sims=20): 
 
     if micro_max_workers is None:
-        micro_max_workers = num_archs*2
+        micro_max_workers = max(num_archs//8, 1)
+
+    if macro_max_workers is None:
+        macro_max_workers = num_concurrent
 
     if max_memories is None:
         max_memories = controller_batch_size*3
@@ -101,19 +104,19 @@ def main(max_memories=1e5, controller_batch_size=512, num_train_iters=25,
         print("Iteration {}".format(cnt))
         controller.eval()
 
-        # if num_concurrent > 1:
-        #     all_new_memories = []
-        #     with TPE(macro_max_workers) as executor:
-        #         list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
-        #             [make_arch_hps for _ in range(num_concurrent)]))
+        if num_concurrent > 1:
+            all_new_memories = []
+            with TPE(macro_max_workers) as executor:
+                list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
+                    [make_arch_hps for _ in range(num_concurrent)]))
 
-        #     #so the above return [[memories, memories], [memories, memories]]
-        #     #and what we want is [memories, memories, memories, memories]
-        #     for lst in list_of_all_new_memories:
-        #         for sub_list in lst:
-        #             all_new_memories.append(sub_list)
-        # else:
-        all_new_memories = controller.make_architecture_mp(make_arch_hps)
+            #so the above return [[memories, memories], [memories, memories]]
+            #and what we want is [memories, memories, memories, memories]
+            for lst in list_of_all_new_memories:
+                for sub_list in lst:
+                    all_new_memories.append(sub_list)
+        else:
+            all_new_memories = controller.make_architecture_mp(make_arch_hps)
 
         for i, new_memories in enumerate(all_new_memories):
             decisions = new_memories[-1]["decisions"]

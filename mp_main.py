@@ -60,6 +60,9 @@ def main(max_memories=1e5, controller_batch_size=512, num_train_iters=25,
         train_batch_size=32, test_batch_size=64, num_archs=64, num_concurrent=2, 
         macro_max_workers=3, micro_max_workers=None, num_sims=20): 
 
+    if micro_max_workers is None:
+        micro_max_workers = num_archs*2
+
     if max_memories is None:
         max_memories = controller_batch_size*3
     #batch_size=4, num_train_iters=100 is good

@@ -19,7 +19,8 @@ from fastai.plots import *
 
 from copy import deepcopy as dc
 
-from concurrent.futures import ProcessPoolExecutor as PPE
+# from concurrent.futures import ProcessPoolExecutor as PPE
+from concurrent.futures import ThreadPoolExecutor as PPE
 
 # https://stackoverflow.com/questions/8277715/multiprocessing-in-a-pipeline-done-right
 #good multiprocessing/pipeline resource

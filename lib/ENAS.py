@@ -474,33 +474,33 @@ class ENAS(nn.Module):
         # # if self.training:
         # #     values.register_hook(print)
 
-        # # value_loss = F.mse_loss(values, scores)
+        value_loss = F.mse_loss(values, scores)/self.batch_size
 
-        values += 1
-        values /= 2
+        # values += 1
+        # values /= 2
 
-        scores += 1
-        scores /= 2
+        # scores += 1
+        # scores /= 2
 
-        # print("*"*10)
-        # print("*"*10)
-        # print("*"*10)
-        # print("Value mean: ", values.mean())
-        # print("*"*10)
-        # print("*"*10)
-        # print("*"*10)
+        print("*"*10)
+        print("*"*10)
+        print("*"*10)
+        print("Value mean: ", values.mean())
+        print("*"*10)
+        print("*"*10)
+        print("*"*10)
 
         # values.register_hook(print)
 
         # value_loss = -ones.mm(torch.log(1 - torch.abs(scores - values).unsqueeze(-1)))
 
-        value_div = 5e4
-        dist_div = 5e3  #5e3 is good
+        value_div = 1e6
+        dist_div = 5e2  #5e3 is good
 
         # value_loss = -torch.log(1 - torch.abs(scores - values)).sum()
         ones = torch.ones(len(scores)).unsqueeze(0)        
-        value_loss = -ones.mm(torch.log(1 - torch.abs(scores - values)).unsqueeze(-1))
-        value_loss /= value_div         
+        # value_loss = -ones.mm(torch.log(1 - torch.abs(scores - values)).unsqueeze(-1))
+        # value_loss /= value_div         
         # value_loss /= 10       
 
         policies = torch.cat(policies)
@@ -517,8 +517,10 @@ class ENAS(nn.Module):
         #  torch.abs(search_probas - policies).unsqueeze(-1)).sum()
         ones = torch.ones(len(search_probas)).unsqueeze(0)                
 
-        dist_matching_loss = -ones.mm(torch.log(1 - \
-         torch.abs(search_probas - policies).unsqueeze(-1)))
+        # dist_matching_loss = -ones.mm(torch.log(1 - \
+        #  torch.abs(search_probas - policies).unsqueeze(-1)))
+
+        dist_matching_loss = F.mse_loss(policies, search_probas)/(self.batch_size*len(policies))
 
         # print("*"*10)
         # print("*"*10)

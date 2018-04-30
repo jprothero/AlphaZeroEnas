@@ -43,16 +43,19 @@ class AlphaZero:
         if self.T != 0:
             visits_sum = (1.0 * visits.sum())
 
+            #reenable these
             if visits_sum == 0:
-                set_trace()
+                idx = np.argmax(visits)
+            else:
+                # set_trace()
 
-            assert visits_sum != 0
+            # assert visits_sum != 0
             
             # if visits_sum == 0 and self.curr_node["d"] == self.max_depth-1:
             #     idx = 0
             # else:
-            visits = visits / visits_sum
-            idx = np.random.choice(len(visits), p=visits)
+                visits = visits / visits_sum
+                idx = np.random.choice(len(visits), p=visits)
         else:
             idx = np.argmax(visits)
 

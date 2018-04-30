@@ -555,15 +555,23 @@ class ENAS(nn.Module):
 
             policies.append(probas)
             search_probas.append(sp)
+        set_trace()
         search_probas = torch.cat(search_probas)
         search_probas = Variable(search_probas)
+        if self.has_cuda:
+            search_probas = search_probas.cuda()
 
         values = torch.cat(values)
         scores = torch.tensor(scores)
         # # if self.training:
         # #     values.register_hook(print)
 
-        value_loss = F.mse_loss(values, scores)/self.batch_size
+        value_loss = F.mse_loss(values, scores)
+
+        policies = torch.cat(policies)
+
+        search_probas_loss = -search_probas.unsqueeze(0).mm(torch.log(policies.unsqueeze(-1)))/len(self.batch_size)
+        #/self.batch_size
 
         # values += 1
         # values /= 2
@@ -571,28 +579,27 @@ class ENAS(nn.Module):
         # scores += 1
         # scores /= 2
 
-        print("*"*10)
-        print("*"*10)
-        print("*"*10)
-        print("Value mean: ", values.mean())
-        print("*"*10)
-        print("*"*10)
-        print("*"*10)
+        # print("*"*10)
+        # print("*"*10)
+        # print("*"*10)
+        # print("Value mean: ", values.mean())
+        # print("*"*10)
+        # print("*"*10)
+        # print("*"*10)
 
         # values.register_hook(print)
 
         # value_loss = -ones.mm(torch.log(1 - torch.abs(scores - values).unsqueeze(-1)))
 
-        value_div = 1e6
-        dist_div = 5e2  #5e3 is good
+        # value_div = 1e6
+        # dist_div = 5e2  #5e3 is good
 
         # value_loss = -torch.log(1 - torch.abs(scores - values)).sum()
-        ones = torch.ones(len(scores)).unsqueeze(0)        
+        # ones = torch.ones(len(scores)).unsqueeze(0)        
         # value_loss = -ones.mm(torch.log(1 - torch.abs(scores - values)).unsqueeze(-1))
         # value_loss /= value_div         
         # value_loss /= 10       
 
-        policies = torch.cat(policies)
         # policies = policies.unsqueeze(-1)
         # distance_from_one = 1 - torch.abs(search_probas - policies)
         # search_probas = search_probas.unsqueeze(0)**2
@@ -604,12 +611,13 @@ class ENAS(nn.Module):
         #  torch.abs(search_probas - policies).unsqueeze(-1)))
         # dist_matching_loss = -torch.log(1 - \
         #  torch.abs(search_probas - policies).unsqueeze(-1)).sum()
-        ones = torch.ones(len(search_probas)).unsqueeze(0)                
+        # ones = torch.ones(len(search_probas)).unsqueeze(0)                
 
         # dist_matching_loss = -ones.mm(torch.log(1 - \
         #  torch.abs(search_probas - policies).unsqueeze(-1)))
 
-        dist_matching_loss = F.mse_loss(policies, search_probas)/(self.batch_size*len(policies))
+        # dist_matching_loss = F.mse_loss(policies, search_probas)/(self.batch_size*len(policies))
+        
 
         # print("*"*10)
         # print("*"*10)
@@ -622,7 +630,7 @@ class ENAS(nn.Module):
         # dist_matching_loss = -(search_probas**2).unsqueeze(0).mm(torch.log(1 - \
         #  torch.abs(search_probas - policies).unsqueeze(-1)))
 
-        dist_matching_loss /= dist_div    
+        # dist_matching_loss /= dist_div    
         # dist_matching_loss /= self.batch_size
         # dist_matching_loss /= self.batch_size
         # dist_matching_loss /= self.batch_size
@@ -634,12 +642,17 @@ class ENAS(nn.Module):
         # dist_matching_loss /= len(search_probas) #might be wrong
 
         # search_probas_loss /= self.batch_size
+        # if self.has_cuda:
+        #     print(f"Dist: {dist_matching_loss.data.cpu().numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
+        # else:
+        #     print(f"Dist: {dist_matching_loss.data.numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
+
         if self.has_cuda:
-            print(f"Dist: {dist_matching_loss.data.cpu().numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
+            print(f"Probas: {search_probas_loss.data.cpu().numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
         else:
-            print(f"Dist: {dist_matching_loss.data.numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
+            print(f"Probas: {search_probas_loss.data.numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
             
-        total_loss = dist_matching_loss + value_loss 
+        total_loss = search_probas_loss + value_loss 
         # total_loss = dist_matching_loss
         # total_loss = value_loss
 

@@ -14,6 +14,7 @@ import torchvision
 import torch
 import torch.optim as optim
 from torch.autograd import Variable
+import argparse
 
 from copy import deepcopy
 
@@ -56,12 +57,18 @@ def create_data_loaders(train_batch_size, test_batch_size):
 
     return trainloader, testloader
 
-def main(max_memories=1e5, controller_batch_size=512, num_train_iters=25,
-        train_batch_size=32, test_batch_size=256, num_archs=64, num_concurrent=3, 
-        macro_max_workers=None, micro_max_workers=None, num_sims=20): 
+def main(args=None, max_memories=1e5, controller_batch_size=512, num_train_iters=25,
+        train_batch_size=32, test_batch_size=64, num_archs=64, num_concurrent=2, 
+        macro_max_workers=2, micro_max_workers=None, num_sims=20): 
+
+    if args is not None:
+        num_sims = args.num_sims
+        num_archs = args.num_archs
+        num_concurrent = args.num_concurrent
+        micro_max_workers = args.micro_max_workers
 
     if micro_max_workers is None:
-        micro_max_workers = max(num_archs//4, 1)
+        micro_max_workers = max(num_archs//2, 1)
 
     if macro_max_workers is None:
         macro_max_workers = num_concurrent
@@ -193,4 +200,11 @@ def normal_train(controller, controller_optim, memories, batch_size, num_batches
     controller.eval()
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num_sims", default=20)
+    parser.add_argument("--num_archs", default=64)
+    parser.add_argument("--num_concurrent", default=2)
+    parser.add_argument("--micro_max_workers", default=None)
+    args = parser.parse_args()
+
+    main(args)

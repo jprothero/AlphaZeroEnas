@@ -479,7 +479,7 @@ class ENAS(nn.Module):
                 #     alpha_zeros = list(executor.map(self.reset_to_root, alpha_zeros))
                 if j % 5 == 4:
                     end = datetime.datetime.now()
-                    difference = start - end
+                    difference = end - start
                     print(difference.seconds)
 
             # with PPE(max_workers) as executor:

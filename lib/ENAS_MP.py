@@ -556,7 +556,8 @@ class ENAS(nn.Module):
             # value_loss += F.mse_loss(value, score)
             values.append(value)
             logits = self.softmaxs[decision_idx](cont_out).squeeze()
-            probas = F.softmax(logits)
+            probas = F.softmax(logits, dim=0)
+            assert probas[0].sum() == 0
 
             policies.append(probas)
             search_probas.append(sp)

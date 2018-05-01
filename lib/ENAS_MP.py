@@ -577,7 +577,7 @@ class ENAS(nn.Module):
             # value_loss += F.mse_loss(value, score)
             values.append(value)
             logits = self.softmaxs[decision_idx](cont_out).squeeze()
-            probas = F.softmax(logits.unsqueeze(0), dim=1)
+            probas = F.softmax(logits.unsqueeze(0), dim=1).squeeze()
 
             policies.append(probas)
             search_probas.append(sp)
@@ -594,11 +594,10 @@ class ENAS(nn.Module):
         # #     values.register_hook(print)
 
         value_loss = F.mse_loss(values, scores)
-
         policies = torch.cat(policies)
 
         search_probas_loss = -search_probas.unsqueeze(0).mm(torch.log(policies.unsqueeze(-1)))
-        search_probas_loss /= len(self.batch_size)
+        search_probas_loss /= self.batch_size
         #/self.batch_size
 
         # values += 1
@@ -686,7 +685,7 @@ class ENAS(nn.Module):
 
         return total_loss
 
-    def fastai_train(self, controller, memories, batch_size, num_cycles=10, epochs=1, min_memories=None):
+    def fastai_train(self, controller, memories, batch_size, num_cycles=10, epochs=20, min_memories=None):
         self.memories = memories
         self.batch_size = batch_size
         if min_memories is None:

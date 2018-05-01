@@ -100,8 +100,8 @@ def main(args, max_memories=100000, controller_batch_size=512, num_train_iters=2
     cnt = 0
 
     try:
-        p.load(open("max_score.p", "rb"))
-        p.load(open("max_score_decisions.p", "rb"))
+        max_score = p.load(open("max_score.p", "rb"))
+        max_score_decisions = p.load(open("max_score_decisions.p", "rb"))
     except:
         max_score = -1
         max_score_decisions = None

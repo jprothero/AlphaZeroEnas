@@ -152,14 +152,14 @@ class ENAS(nn.Module):
             "skips": self.skips
         }
 
-        self.max_depth = 0
-        for key, val in self.decisions.items():
-            if key is "filters":
-                self.max_depth += 1
-            elif key is "skips": 
-                self.max_depth += self.num_layers - 2
-            else:
-                self.max_depth += self.num_layers
+        # self.max_depth = 0
+        # for key, _ in self.decisions.items():
+        #     if key is "filters":
+        #         self.max_depth += 1
+        #     elif key is "skips": 
+        #         self.max_depth += self.num_layers - 2
+        #     else:
+        #         self.max_depth += self.num_layers
 
         total_embeddings = 0
         for _, lst in self.decisions.items():
@@ -444,7 +444,7 @@ class ENAS(nn.Module):
         # ctx = get_context("forkserver")
         num_archs, num_sims = kwargs["num_archs"], kwargs["num_sims"]
         
-        alpha_zeros = [AlphaZero(max_depth=self.max_depth) for _ in range(num_archs)]
+        alpha_zeros = [AlphaZero(max_depth=self.num_layers*len(self.decision_list)) for _ in range(num_archs)]
 
         decisions = dict()
         for name in self.decision_list:

@@ -1,6 +1,17 @@
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import torchvision
+import torch
+from tqdm import tqdm
+import numpy as np
+
+from fastai.imports import *
+from fastai.transforms import *
+from fastai.learner import *
+from fastai.model import *
+from fastai.dataset import *
+from fastai.sgdr import *
+from fastai.plots import *
 
 def create_data_loaders(train_batch_size, test_batch_size, cuda):
     transform_train = transforms.Compose([
@@ -66,7 +77,7 @@ def create_fastai_data(batch_size):
     for i, (x, y) in enumerate(tqdm(trainloader)):
         trn_X.append(x.numpy())
         trn_y.append(y.numpy())
-        if i > len(trainloader)//10:
+        if i > len(trainloader)//30:
             break
 
     val_X = []
@@ -74,7 +85,7 @@ def create_fastai_data(batch_size):
     for i, (x, y) in enumerate(testloader):
         val_X.append(x.numpy())
         val_y.append(y.numpy())
-        if i > len(testloader)//10:
+        if i > len(testloader)//30:
             break
 
     trn_X = np.concatenate(trn_X)

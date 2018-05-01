@@ -3,6 +3,9 @@ from lib.ENAS_MP import ENAS
 from lib.utils import create_fastai_data
 from torch.multiprocessing import get_context, cpu_count
 import pickle as p
+import torch
+
+from ipdb import set_trace
 
 def lr_find_controller(controller, batch_size=512):
     try:
@@ -19,8 +22,8 @@ def lr_find_arch(controller, batch_size=32):
     ctx = get_context("forkserver")
 
     make_arch_hps = {
-        "num_archs": 8
-        , "num_sims": 30
+        "num_archs": 1
+        , "num_sims": 10
     }
 
     with ctx.Pool() as executor:
@@ -50,11 +53,10 @@ def lr_finder(lr_find_type):
     controller = ENAS()
     if controller.has_cuda:
         controller = controller.cuda()
-    print(lr_find_type)
 
-    if lr_find_type.lower() is "controller":
-        lr_find_controller(controller)
-    elif lr_find_type.lower() is "arch":
-        lr_find_arch(controller)
+    if lr_find_type is "controller":
+        return lr_find_controller(controller)
+    elif lr_find_type is "arch":
+        return lr_find_arch(controller)
     else:
         print("Unknown command, select <controller> or <arch>")

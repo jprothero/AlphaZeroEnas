@@ -23,6 +23,8 @@ from concurrent.futures import ProcessPoolExecutor as PPE
 from concurrent.futures import ThreadPoolExecutor as TPE
 from torch.multiprocessing import Pool, set_start_method, get_context
 
+from torch import optim
+
 # https://stackoverflow.com/questions/8277715/multiprocessing-in-a-pipeline-done-right
 #good multiprocessing/pipeline resource
 
@@ -528,13 +530,15 @@ class ENAS(nn.Module):
 
         return new_memories
 
-    def create_fake_data(self):
+    def create_fake_data(self, num_batches=20):
         classes = ('plane', 'car', 'bird', 'cat', 'deer',
             'dog', 'frog', 'horse', 'ship', 'truck')
-        trn_X = np.zeros(shape=(64, self.CH, self.R, self.C))
-        trn_y = np.zeros(shape=(64, 1))
-        val_X = np.zeros(shape=(64, self.CH, self.R, self.C))
-        val_y = np.zeros(shape=(64, 1))
+
+        num_samples = 64*num_batches
+        trn_X = np.zeros(shape=(num_samples, self.CH, self.R, self.C))
+        trn_y = np.zeros(shape=(num_samples, 1))
+        val_X = np.zeros(shape=(num_samples//6, self.CH, self.R, self.C))
+        val_y = np.zeros(shape=(num_samples//6, 1))
         trn = [trn_X, trn_y]
         val = [val_X, val_y]
         fake_data = ImageClassifierData.from_arrays("./data", trn=trn, val=val,
@@ -569,6 +573,17 @@ class ENAS(nn.Module):
             embedding = self.embedding_from_trajectory(trajectory=trajectory)
 
             cont_out = self.controller(embedding)
+
+            #this is wrong but at some point we need to do something like this
+            #we need to scale the score by the parameters value if the value is associated with increased
+            #memory or especially compute. for example max groups might always be the best performing but
+            #has much more compute reqs, so we want to minimize that, and similarly for filters we want 
+            #to minimize the number of filters
+            #we can probably come up with a more clever heuristic but for now / by number of filters would be okay.
+            #we would learn the minimal number of filters where the information doesnt collapse basically (in theory)
+            # if self.decision_list[decision_idx] is "filters":
+            #     set_trace()
+            #     score /= self.filters[trajectory[-1]]
 
             scores.append(score)
             # if self.training:
@@ -675,9 +690,9 @@ class ENAS(nn.Module):
         #     print(f"Dist: {dist_matching_loss.data.numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
 
         if self.has_cuda:
-            print(f"Probas: {search_probas_loss.data.cpu().numpy()}, Value {value_loss.data.cpu().numpy()}")
+            print(f"Probas: {search_probas_loss.data.cpu().squeeze().numpy()}, Value {value_loss.data.cpu().numpy()}")
         else:
-            print(f"Probas: {search_probas_loss.data.numpy()}, Value {value_loss.data.numpy()}")
+            print(f"Probas: {search_probas_loss.squeeze().data.numpy()}, Value {value_loss.data.numpy()}")
             
         total_loss = search_probas_loss + value_loss 
         # total_loss = dist_matching_loss
@@ -685,7 +700,7 @@ class ENAS(nn.Module):
 
         return total_loss
 
-    def fastai_train(self, controller, memories, batch_size, num_cycles=10, epochs=20, min_memories=None):
+    def fastai_train(self, controller, memories, batch_size, num_cycles=10, epochs=1, min_memories=None):
         self.memories = memories
         self.batch_size = batch_size
         if min_memories is None:
@@ -702,11 +717,19 @@ class ENAS(nn.Module):
         controller_learner.model.real_forward = controller_learner.model.forward
 
         controller_learner.model.forward = lambda x: x
-        controller_learner.fit(2, epochs, wds=1e-6)
+        controller_learner.fit(7e-2, epochs, wds=1e-6)
         # controller_learner.fit(2, epochs, cycle_len=num_cycles, use_clr_beta=(10, 13.68, 0.95, 0.85), 
         #     wds=1e-4)
 
         controller_learner.model.forward = controller_learner.model.real_forward
+    #so let me think for a sec, the issue is in theory more filters will always be better at the cost of more memory and compute
+    #so we should divide score by number of filters and multiply by the max number of filters, so it will be between 1/max_filters and
+    #max_filters/max_filters = 1
+
+    #actually no, what we want is that the score is divide by between 1 and max_filters
+    #so basically we would be maximizing score per filter
+    #which, in theory it is going to be lower
+    #i.e. probably it would find the lowest number of filters that didnt cause the model to fail, which is ideal
 
     def controller_lr_find(self, controller, memories, batch_size, start_lr=1e-5, end_lr=10):
         self.memories = memories
@@ -845,7 +868,8 @@ class ENAS(nn.Module):
         arch = FastaiWrapper(model=arch, crit=None)
         learn = Learner(data=data, models=arch)
         learn.crit = F.nll_loss
-        learn.lr_find(start_lr=start_lr, end_lr=end_lr)
+        learn.opt_fn = optim.Adam
+        learn.lr_find(start_lr=start_lr, end_lr=end_lr, wds=1e4)
         return learn
 
                

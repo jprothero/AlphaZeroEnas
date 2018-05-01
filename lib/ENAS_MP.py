@@ -19,8 +19,8 @@ from fastai.plots import *
 
 from copy import deepcopy as dc
 
-# from concurrent.futures import ProcessPoolExecutor as PPE
-from concurrent.futures import ThreadPoolExecutor as PPE
+from concurrent.futures import ProcessPoolExecutor as PPE
+from concurrent.futures import ThreadPoolExecutor as TPE
 
 # https://stackoverflow.com/questions/8277715/multiprocessing-in-a-pipeline-done-right
 #good multiprocessing/pipeline resource
@@ -463,12 +463,12 @@ class ENAS(nn.Module):
                 #     set_trace()
                 self.evaluate(alpha_zeros)
 
-                with PPE(max_workers) as executor:
+                with TPE(max_workers) as executor:
                     alpha_zeros = list(executor.map(self.expand, alpha_zeros))
 
                 self.get_values(alpha_zeros)
 
-                with PPE(max_workers) as executor:
+                with TPE(max_workers) as executor:
                     alpha_zeros = list(executor.map(self.backup, alpha_zeros))
 
                 # for az in alpha_zeros:
@@ -499,7 +499,7 @@ class ENAS(nn.Module):
             if len(alpha_zeros) == 0:
                 break
 
-        with PPE(max_workers) as executor:
+        with TPE(max_workers) as executor:
             new_memories = list(executor.map(self.get_memories, final_alpha_zeros))
 
         #so I am returning a list of memories

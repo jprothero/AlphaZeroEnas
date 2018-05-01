@@ -10,3 +10,13 @@ if the embeddings and input for each time step each time is lackluster the syste
 that said, I think before I start doing major changes I should check and see how what I have works.
 
 maybe it works now and I could start writing a paper, or focus on the MCTSnet improvement instead
+
+
+So some possible improvements: input to the controller can be changed into the transformer network encoder
+MCTSnet instead of normal neural nets, may be more amenable to learning alpha zero
+look into different probability distribution matching algorithms, such as KLD as opposed to what we have
+that said, the alpha zero one works, so we should start with that
+
+possibly some type of wavenet style base for looking over the whole architecture so far or something.
+
+neural cache appears to be fairly effective

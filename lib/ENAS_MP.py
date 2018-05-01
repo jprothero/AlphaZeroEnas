@@ -21,8 +21,7 @@ from copy import deepcopy as dc
 
 from concurrent.futures import ProcessPoolExecutor as PPE
 from concurrent.futures import ThreadPoolExecutor as TPE
-from torch.multiprocessing import Pool, set_start_method
-set_start_method("forkserver")
+from torch.multiprocessing import Pool, set_start_method, get_context
 
 # https://stackoverflow.com/questions/8277715/multiprocessing-in-a-pipeline-done-right
 #good multiprocessing/pipeline resource
@@ -433,6 +432,7 @@ class ENAS(nn.Module):
         return az
 
     def make_architecture_mp(self, kwargs):
+        ctx = get_context("forkserver")
         num_archs, num_sims, max_workers = \
             kwargs["num_archs"], kwargs["num_sims"], kwargs["max_workers"]
         self.max_workers = max_workers
@@ -462,7 +462,7 @@ class ENAS(nn.Module):
                 # with TPE(max_workders) as executor:
                 #     alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
 
-                with Pool() as executor:
+                with ctx.Pool() as executor:
                     alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
 
                 # if j > 0:

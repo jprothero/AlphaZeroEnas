@@ -16,6 +16,8 @@ import torch.optim as optim
 from torch.autograd import Variable
 import argparse
 
+from torch.multiprocessing import Pool, get_context
+
 from copy import deepcopy
 
 from tqdm import tqdm
@@ -28,7 +30,7 @@ from random import shuffle
 from concurrent.futures import ProcessPoolExecutor as PPExec
 from concurrent.futures import ThreadPoolExecutor as TPE
 
-def create_data_loaders(train_batch_size, test_batch_size):
+def create_data_loaders(train_batch_size, test_batch_size, cuda):
     transform_train = transforms.Compose([
     transforms.RandomCrop(32, padding=4),
     transforms.RandomHorizontalFlip(),
@@ -53,7 +55,7 @@ def create_data_loaders(train_batch_size, test_batch_size):
     testset = torchvision.datasets.CIFAR10(
         root=path, train=False, transform=transform_test)
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=test_batch_size, shuffle=False, num_workers=0)
+        testset, batch_size=test_batch_size, shuffle=True, num_workers=0)
 
     return trainloader, testloader
 
@@ -85,8 +87,8 @@ def main(args=None, max_memories=1e5, controller_batch_size=512, num_train_iters
         print("Error loading memories: ", e)
         memories = []
 
-    trainloader, testloader = create_data_loaders(train_batch_size, test_batch_size)
     controller = ENAS()
+    trainloader, testloader = create_data_loaders(train_batch_size, test_batch_size, cuda=controller.has_cuda)
     if controller.has_cuda:
         controller = controller.cuda()
 
@@ -106,6 +108,7 @@ def main(args=None, max_memories=1e5, controller_batch_size=512, num_train_iters
         , "max_workers": micro_max_workers
     }
 
+    ctx = get_context("forkserver")
     cnt = 0
     while True:    
         print("Iteration {}".format(cnt))
@@ -114,9 +117,14 @@ def main(args=None, max_memories=1e5, controller_batch_size=512, num_train_iters
         if num_concurrent > 1:
             print(num_concurrent)
             all_new_memories = []
-            with TPE(macro_max_workers) as executor:
+
+            with ctx.Pool() as executor:
                 list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
                     [make_arch_hps for _ in range(num_concurrent)]))
+
+            # with TPE(macro_max_workers) as executor:
+            #     list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
+            #         [make_arch_hps for _ in range(num_concurrent)]))
 
             #so the above return [[memories, memories], [memories, memories]]
             #and what we want is [memories, memories, memories, memories]
@@ -130,12 +138,15 @@ def main(args=None, max_memories=1e5, controller_batch_size=512, num_train_iters
             decisions = new_memories[-1]["decisions"]
 
             arch = controller.create_arch_from_decisions(decisions)
-            arch_optim = optim.Adam(arch.parameters(), lr=5e-5) #5e-5
-            arch.train()
             if controller.has_cuda:
                 arch = arch.cuda()
+            arch_optim = optim.Adam(arch.parameters(), lr=5e-5) #5e-5
+            arch.train()
 
             for i, (inputs, targets) in enumerate(trainloader):
+                if controller.has_cuda:
+                    inputs = inputs.cuda()
+                    targets = targets.cuda()
                 arch_optim.zero_grad()
                 outputs = arch(inputs)
                 train_loss = F.nll_loss(outputs, targets)
@@ -155,6 +166,9 @@ def main(args=None, max_memories=1e5, controller_batch_size=512, num_train_iters
             else:
                 arch.eval()
                 for inputs, targets in testloader:
+                    if controller.has_cuda:
+                        inputs = inputs.cuda()
+                        targets = targets.cuda()
                     outputs = arch(inputs)
                     pred = outputs.data.max(1, keepdim=True)[1]
                     correct = pred.eq(targets.data.view_as(pred)).float().sum()

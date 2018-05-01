@@ -45,11 +45,18 @@ class FastaiWrapper():
     def get_layer_groups(self, precompute=False):
         return self.model
 
-def simulate(params):
-    az = params["az"]
-    starting_indices = params["starting_indices"]
-    decision_list = params["decision_list"]
-    check_condition = params["check_condition"]
+class MPUtil:
+    def __init__(az, starting_indices, decision_list, check_condition):
+        self.az = az
+        self.starting_indices = starting_indices
+        self.decision_list = decision_list
+        self.check_condition = check_condition
+
+def simulate(mp_util):
+    az = mp_util.az
+    starting_indices = mp_util.starting_indices
+    decision_list = mp_util.decision_list
+    check_condition = mp_util.check_condition
 
     if az.curr_node["d"] > az.max_depth-1: #was >=
         return az
@@ -88,6 +95,8 @@ def skip_mask(layer_idx, probas):
     probas[layer_idx-1:] = 0
     probas /= (1.0 * probas.sum())
     return probas
+
+
 
 class ENAS(nn.Module):
     def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=4, controller_dims=70, 
@@ -463,15 +472,11 @@ class ENAS(nn.Module):
             print(f"Choice {i}")
             for j in range(num_sims):
                 print(f"Sim {j}")
-                simulate_params = [{
-                    "az": az,
-                    "starting_indices": self.starting_indices,
-                    "decision_list": self.decision_list,
-                    "check_condition": self.check_condition
-                } for az in alpha_zeros]
+                mp_utils = [MPUtil(az, self.starting_indices, self.decision_list, self.check_condition)
+                for az in alpha_zeros]
 
                 with PPE(max_workers) as executor:
-                    alpha_zeros = list(executor.map(simulate, simulate_params))
+                    alpha_zeros = list(executor.map(simulate, mp_utils))
 
                 # if j > 0:
                 #     set_trace()

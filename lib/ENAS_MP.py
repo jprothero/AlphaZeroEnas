@@ -455,7 +455,7 @@ class ENAS(nn.Module):
         i = 0
         while True:
             print(f"Choice {i} of {az.max_depth-1}")
-            start = datetime.datetime.now()
+            # start = datetime.datetime.now()
             for j in range(num_sims):
                 # print(f"Sim {j}")
                 # with TPE(max_workers) as executor:
@@ -483,11 +483,11 @@ class ENAS(nn.Module):
 
                 # with PPE(max_workers) as executor:
                 #     alpha_zeros = list(executor.map(self.reset_to_root, alpha_zeros))
-                if j % num_sims == num_sims-1:
-                    end = datetime.datetime.now()
-                    difference = end - start
-                    # print(difference.seconds)
-                    print(difference.microseconds / (1.0 * 1e6)) 
+                # if j % num_sims == num_sims-1:
+                #     end = datetime.datetime.now()
+                #     difference = end - start
+                #     # print(difference.seconds)
+                #     print(difference.microseconds / (1.0 * 1e6)) 
 
             # with PPE(max_workers) as executor:
             #     alpha_zeros = list(executor.map(self.reset_to_root, alpha_zeros))

@@ -21,6 +21,7 @@ from copy import deepcopy as dc
 
 from concurrent.futures import ProcessPoolExecutor as PPE
 from concurrent.futures import ThreadPoolExecutor as TPE
+from torch.multiprocessing import Pool, cpu_count
 
 # https://stackoverflow.com/questions/8277715/multiprocessing-in-a-pipeline-done-right
 #good multiprocessing/pipeline resource
@@ -457,7 +458,10 @@ class ENAS(nn.Module):
             start = datetime.datetime.now()
             for j in range(num_sims):
                 print(f"Sim {j}")
-                with TPE(max_workers) as executor:
+                # with TPE(max_workers) as executor:
+                #     alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
+
+                with Pool(cpu_count()) as executor:
                     alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
 
                 # if j > 0:

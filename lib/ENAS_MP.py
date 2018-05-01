@@ -557,11 +557,11 @@ class ENAS(nn.Module):
             sp = memory["search_probas"]
             decision_idx = memory["decision_idx"]
 
-            if len(trajectory) == 0:
-                # cont_out = self.controller(self.first_emb)[0].squeeze(0)
-                cont_out = self.controller(self.first_emb)
-            else:
-                cont_out = self.cont_out_from_trajectory(trajectory, training=True)
+            # if len(trajectory) == 0:
+            #     # cont_out = self.controller(self.first_emb)[0].squeeze(0)
+            #     cont_out = self.controller(self.first_emb)
+            # else:
+            embedding = self.embedding_from_trajectory(trajectory, training=True)
 
             scores.append(score)
             # if self.training:

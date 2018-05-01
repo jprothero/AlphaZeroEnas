@@ -205,7 +205,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_sims", default=20)
     parser.add_argument("--num_archs", default=64)
     parser.add_argument("--num_concurrent", default=2)
-    parser.add_argument("--micro_max_workers", default=None)
+    parser.add_argument("--micro_max_workers", default=1)
     args = parser.parse_args()
 
     main(args)

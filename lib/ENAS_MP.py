@@ -622,7 +622,7 @@ class ENAS(nn.Module):
 
         cont_outs = self.controller(embeddings)
 
-        for cont_out, decision_idx in zip(cont_out, decision_indices):
+        for cont_out, decision_idx in zip(cont_outs, decision_indices):
             logits = self.softmaxs[decision_idx](cont_out).squeeze()
             probas = F.softmax(logits.unsqueeze(0), dim=1).squeeze()
 

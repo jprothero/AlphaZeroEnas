@@ -1,6 +1,6 @@
 import argparse
-from .lib.ENAS_MP import ENAS
-from .lib.utils import create_fastai_data
+from lib.ENAS_MP import ENAS
+from lib.utils import create_fastai_data
 from torch.multiprocessing import get_context, cpu_count
 import pickle as p
 

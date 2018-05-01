@@ -59,7 +59,7 @@ def create_data_loaders(train_batch_size, test_batch_size):
 
 def main(args=None, max_memories=1e5, controller_batch_size=512, num_train_iters=25,
         train_batch_size=32, test_batch_size=64, num_archs=64, num_concurrent=2, 
-        macro_max_workers=2, micro_max_workers=None, num_sims=20): 
+        macro_max_workers=None, micro_max_workers=None, num_sims=20): 
 
     if args is not None:
         num_sims = int(args.num_sims)

@@ -628,7 +628,6 @@ class ENAS(nn.Module):
 
             policies.append(probas)
 
-        set_trace()
         values = self.value_head(cont_outs).squeeze()
             
         # values = torch.cat(values)

@@ -271,7 +271,8 @@ class ENAS(nn.Module):
             weights = weights.view(1, -1)
             logits = torch.cat(logits)
 
-            probas = F.softmax(logits)
+            probas = F.softmax(logits, dim=0)
+            assert probas[0].sum() == 0
             probas = weights.mm(probas)
 
             # probas2 = F.softmax(logits)*weights
@@ -345,7 +346,8 @@ class ENAS(nn.Module):
             if len(decision_indices) > 0: 
                 specific_cont_outs = cont_outs[decision_indices]
                 logits = self.softmaxs[i](specific_cont_outs)
-                probas = F.softmax(logits)
+                probas = F.softmax(logits, dim=0)
+                assert probas[0].sum() == 0
                 azs = [alpha_zeros[i] for i in decision_indices]
                 for az, p in zip(azs, probas):
                     az.probas = p.squeeze().detach().data

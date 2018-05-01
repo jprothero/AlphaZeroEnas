@@ -46,7 +46,7 @@ class FastaiWrapper():
         return self.model
 
 class MPUtil:
-    def __init__(az, starting_indices, decision_list, check_condition):
+    def __init__(self, az, starting_indices, decision_list, check_condition):
         self.az = az
         self.starting_indices = starting_indices
         self.decision_list = decision_list

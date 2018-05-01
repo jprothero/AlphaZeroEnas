@@ -806,8 +806,8 @@ class ENAS(nn.Module):
             def forward(self, input):
                 skips = np.array(arch_skips).astype("float32")
                 # skips = torch.tensor(arch_skips).float()
-                if self.has_cuda:
-                    skips = skips.cuda()
+                # if self.has_cuda:
+                #     skips = skips.cuda()
                 x = input
                 layer_outputs = []
                 for i, (layer, actv) in enumerate(zip(self.arch, arch_activations)):

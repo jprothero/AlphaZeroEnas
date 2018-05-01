@@ -481,7 +481,7 @@ class ENAS(nn.Module):
                     end = datetime.datetime.now()
                     difference = end - start
                     # print(difference.seconds)
-                    print(difference.microseconds) / 1e6
+                    print(difference.microseconds) / (1.0 * 1e6)
 
             # with PPE(max_workers) as executor:
             #     alpha_zeros = list(executor.map(self.reset_to_root, alpha_zeros))

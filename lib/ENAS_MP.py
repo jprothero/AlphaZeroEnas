@@ -454,10 +454,10 @@ class ENAS(nn.Module):
 
         i = 0
         while True:
-            print(f"Choice {i}")
+            print(f"Choice {i} of {az.max_depth-1}")
             start = datetime.datetime.now()
             for j in range(num_sims):
-                print(f"Sim {j}")
+                # print(f"Sim {j}")
                 # with TPE(max_workers) as executor:
                 
                 alpha_zeros = list(map(self.simulate, alpha_zeros))

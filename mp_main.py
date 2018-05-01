@@ -108,7 +108,7 @@ def main(args, max_memories=100000, num_train_iters=25,
             arch = controller.create_arch_from_decisions(decisions)
             if controller.has_cuda:
                 arch = arch.cuda()
-            arch_optim = optim.Adam(arch.parameters(), lr=5e-3) #5e-5 was good
+            arch_optim = optim.Adam(arch.parameters(), lr=5e-4) #5e-5 was good  #5e-3 was the lr find one, but seems too big
             arch.train()
 
             for i, (inputs, targets) in enumerate(trainloader):

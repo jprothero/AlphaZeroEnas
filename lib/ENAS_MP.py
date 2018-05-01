@@ -357,7 +357,7 @@ class ENAS(nn.Module):
         for az, cont_out in zip(alpha_zeros, cont_outs):
             az.cont_out = cont_out
         
-    def simulate(az):
+    def simulate(self, az):
         if az.curr_node["d"] > az.max_depth-1: #was >=
             return az
 

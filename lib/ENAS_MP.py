@@ -434,8 +434,6 @@ class ENAS(nn.Module):
     def make_architecture_mp(self, kwargs):
         # ctx = get_context("forkserver")
         num_archs, num_sims = kwargs["num_archs"], kwargs["num_sims"]
-
-        self.max_workers = max_workers
         
         alpha_zeros = [AlphaZero(max_depth=self.num_layers*len(self.decision_list)) for
          _ in range(num_archs)]

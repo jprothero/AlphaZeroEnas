@@ -59,12 +59,16 @@ def create_data_loaders(train_batch_size, test_batch_size, cuda):
 
     return trainloader, testloader
 
-def main(args, max_memories=100000, controller_batch_size=512, num_train_iters=25,
+def main(args, max_memories=100000, num_train_iters=25,
         train_batch_size=32, test_batch_size=64): 
 
     num_sims = int(args.num_sims)
     num_archs = int(args.num_archs)
     num_concurrent = int(args.num_concurrent)
+    controller_batch_size = int(args.controller_batch_size)
+    min_memories = int(args.min_memories) if args.min_memories is not None else None
+    if min_memories is None:
+        min_memories = max_memories // 100
 
     #batch_size=4, num_train_iters=100 is good
     #batch_size=8, num_train_iters=50 is good
@@ -111,7 +115,6 @@ def main(args, max_memories=100000, controller_batch_size=512, num_train_iters=2
         controller.eval()
 
         if num_concurrent > 1:
-            print(num_concurrent)
             all_new_memories = []
 
             with ctx.Pool() as executor:
@@ -222,9 +225,11 @@ def normal_train(controller, controller_optim, memories, batch_size, num_batches
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_sims", default=100)
-    parser.add_argument("--num_archs", default=128)
+    parser.add_argument("--num_sims", default=3)
+    parser.add_argument("--num_archs", default=1)
     parser.add_argument("--num_concurrent", default=cpu_count())
+    parser.add_argument("--min_memories", default=None)
+    parser.add_argument("--controller_batch_size", default=512)
     args = parser.parse_args()
 
     main(args)

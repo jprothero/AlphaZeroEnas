@@ -1,5 +1,3 @@
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
 from lib.ENAS_MP import ENAS
 from ipdb import set_trace
 
@@ -10,11 +8,11 @@ from fastai.model import *
 from fastai.dataset import *
 from fastai.sgdr import *
 from fastai.plots import *
-import torchvision
 import torch
 import torch.optim as optim
 from torch.autograd import Variable
 import argparse
+from lib.utils import create_data_loaders
 
 from torch.multiprocessing import Pool, get_context, cpu_count
 
@@ -29,35 +27,6 @@ import pickle as p
 from random import shuffle
 from concurrent.futures import ProcessPoolExecutor as PPExec
 from concurrent.futures import ThreadPoolExecutor as TPE
-
-def create_data_loaders(train_batch_size, test_batch_size, cuda):
-    transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465),
-                        (0.2023, 0.1994, 0.2010)),
-    ])
-
-    transform_test = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465),
-                            (0.2023, 0.1994, 0.2010)),
-    ])
-
-    path = "./data"
-
-    trainset = torchvision.datasets.CIFAR10(
-        root=path, train=True, download=True, transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=train_batch_size, shuffle=True, num_workers=0)
-
-    testset = torchvision.datasets.CIFAR10(
-        root=path, train=False, transform=transform_test)
-    testloader = torch.utils.data.DataLoader(
-        testset, batch_size=test_batch_size, shuffle=True, num_workers=0)
-
-    return trainloader, testloader
 
 def main(args, max_memories=100000, num_train_iters=25,
         train_batch_size=32, test_batch_size=64): 

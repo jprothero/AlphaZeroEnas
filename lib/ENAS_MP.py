@@ -555,7 +555,6 @@ class ENAS(nn.Module):
 
             policies.append(probas)
             search_probas.append(sp)
-        set_trace()
         search_probas = torch.cat(search_probas)
         search_probas = Variable(search_probas)
         if self.has_cuda:
@@ -563,6 +562,8 @@ class ENAS(nn.Module):
 
         values = torch.cat(values)
         scores = torch.tensor(scores)
+        if self.has_cuda:
+            scores = scores.cuda()
         # # if self.training:
         # #     values.register_hook(print)
 

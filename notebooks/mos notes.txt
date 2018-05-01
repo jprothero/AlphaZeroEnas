@@ -1,0 +1,12 @@
+We multiply a target word and a hidden vector. A hidden would be something like the pre-softmax logits MLP
+and the target word I assume would be the embedding....
+
+So how would that work.. idk
+
+
+yeah... idk unfortunately I do feel like this stuff is pretty relevant
+if the embeddings and input for each time step each time is lackluster the system will have a harder time working
+
+that said, I think before I start doing major changes I should check and see how what I have works.
+
+maybe it works now and I could start writing a paper, or focus on the MCTSnet improvement instead

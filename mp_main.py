@@ -62,10 +62,10 @@ def main(args=None, max_memories=1e5, controller_batch_size=512, num_train_iters
         macro_max_workers=2, micro_max_workers=None, num_sims=20): 
 
     if args is not None:
-        num_sims = args.num_sims
-        num_archs = args.num_archs
-        num_concurrent = args.num_concurrent
-        micro_max_workers = args.micro_max_workers
+        num_sims = int(args.num_sims)
+        num_archs = int(args.num_archs)
+        num_concurrent = int(args.num_concurrent)
+        micro_max_workers = int(args.micro_max_workers)
 
     if micro_max_workers is None:
         micro_max_workers = max(num_archs//2, 1)

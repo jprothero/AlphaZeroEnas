@@ -462,7 +462,7 @@ class ENAS(nn.Module):
 
         i = 0
         while True:
-            print(f"Choice {i} of {az.max_depth-1}")
+            print(f"Choice {i} of {az.max_depth-1 - 5}")
             # start = datetime.datetime.now()
             for j in range(num_sims):
                 # print(f"Sim {j}")
@@ -685,9 +685,9 @@ class ENAS(nn.Module):
         self.batch_size = batch_size
         if min_memories is None:
             min_memories = batch_size*30
-            
+
         if (len(memories) < min_memories):
-            print("Have {} memories, need {}".format(len(memories), batch_size))
+            print("Have {} memories, need {}".format(len(memories), min_memories))
             return
         controller_wrapped = FastaiWrapper(model=controller, crit=self.train_controller)
         controller_learner = Learner(data=self.fake_data, models=controller_wrapped)

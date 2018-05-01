@@ -46,22 +46,14 @@ def lr_find_arch(controller, batch_size=32):
 
     return [controller.arch_lr_find(arch, data) for arch in archs]
 
-def main(args):
+def main(lr_find_type):
     controller = ENAS()
     if controller.has_cuda:
         controller = controller.cuda()
 
-    lr_find_type = args.lr_find_type
     if lr_find_type.lower() is "controller":
         lr_find_controller(controller)
     elif lr_find_type.lower() is "arch":
         lr_find_arch(controller)
     else:
         print("Unknown command, select <controller> or <arch>")
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("lr_find_type", default="controller")
-    args = parser.parse_args()
-
-    main(args)

@@ -45,6 +45,38 @@ class FastaiWrapper():
     def get_layer_groups(self, precompute=False):
         return self.model
 
+def simulate(params):
+    az = params["az"]
+    starting_indices = params["starting_indices"]
+    decision_list = params["decision_list"]
+    check_condition = params["check_condition"]
+
+    if az.curr_node["d"] > az.max_depth-1: #was >=
+        return az
+
+    trajectory = az.select(starting_indices, decision_list)
+
+    depth = az.curr_node["d"]
+    layer_idx = depth // len(decision_list)
+    decision_idx = depth % len(decision_list)
+    decision_name = decision_list[decision_idx]
+
+    while True:
+        skip_curr = check_condition(az, layer_idx, decision_name)
+        if not skip_curr:
+            break
+        else:
+            az.curr_node["d"] += 1
+            depth = az.curr_node["d"]
+            layer_idx = depth // len(decision_list)
+            decision_idx = depth % len(decision_list)
+            decision_name = decision_list[decision_idx]
+
+    az.trajectory = trajectory
+    az.decision_idx = decision_idx
+
+    return az
+
 #https://arxiv.org/pdf/1704.00325.pdf
 #parallel MCTS paper, good resource
 
@@ -357,38 +389,7 @@ class ENAS(nn.Module):
         for az, cont_out in zip(alpha_zeros, cont_outs):
             az.cont_out = cont_out
         
-    @staticmethod
-    def simulate(params):
-        az = params["az"]
-        starting_indices = params["starting_indices"]
-        decision_list = params["decision_list"]
-        check_condition = params["check_condition"]
-
-        if az.curr_node["d"] > az.max_depth-1: #was >=
-            return az
-
-        trajectory = az.select(starting_indices, decision_list)
-
-        depth = az.curr_node["d"]
-        layer_idx = depth // len(decision_list)
-        decision_idx = depth % len(decision_list)
-        decision_name = decision_list[decision_idx]
-
-        while True:
-            skip_curr = check_condition(az, layer_idx, decision_name)
-            if not skip_curr:
-                break
-            else:
-                az.curr_node["d"] += 1
-                depth = az.curr_node["d"]
-                layer_idx = depth // len(decision_list)
-                decision_idx = depth % len(decision_list)
-                decision_name = decision_list[decision_idx]
-
-        az.trajectory = trajectory
-        az.decision_idx = decision_idx
-
-        return az
+    
 
     def get_memories(self, az):
         az.new_memories[-1]["decisions"] = az.decisions
@@ -470,7 +471,7 @@ class ENAS(nn.Module):
                 } for az in alpha_zeros]
 
                 with PPE(max_workers) as executor:
-                    alpha_zeros = list(executor.map(self.simulate, simulate_params))
+                    alpha_zeros = list(executor.map(simulate, simulate_params))
 
                 # if j > 0:
                 #     set_trace()

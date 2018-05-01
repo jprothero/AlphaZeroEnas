@@ -708,7 +708,7 @@ class ENAS(nn.Module):
 
         controller_learner.model.forward = controller_learner.model.real_forward
 
-    def LR_find(self, controller, memories, batch_size, start_lr=1e-5, end_lr=10):
+    def controller_lr_find(self, controller, memories, batch_size, start_lr=1e-5, end_lr=10):
         self.memories = memories
         self.batch_size = batch_size
         if (len(memories) < batch_size):
@@ -840,6 +840,16 @@ class ENAS(nn.Module):
                 return out
 
         return Arch()
+
+    def arch_lr_find(self, arch, data, start_lr=1e-5, end_lr=10):
+        arch = FastaiWrapper(model=arch, crit=None)
+        learn = Learner(data=data, models=arch)
+        learn.crit = F.nll_loss
+        learn.lr_find(start_lr=start_lr, end_lr=end_lr)
+        return learn
+
+               
+
 
 
         

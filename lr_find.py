@@ -50,6 +50,7 @@ def main(lr_find_type):
     controller = ENAS()
     if controller.has_cuda:
         controller = controller.cuda()
+    print(lr_find_type)
 
     if lr_find_type.lower() is "controller":
         lr_find_controller(controller)

@@ -459,8 +459,9 @@ class ENAS(nn.Module):
             start = datetime.datetime.now()
             for j in range(num_sims):
                 print(f"Sim {j}")
-                with TPE(max_workers) as executor:
-                    alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
+                # with TPE(max_workers) as executor:
+                
+                alpha_zeros = list(map(self.simulate, alpha_zeros))
 
                 # with ctx.Pool() as executor:
                 #     alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
@@ -469,13 +470,14 @@ class ENAS(nn.Module):
                 #     set_trace()
                 self.evaluate(alpha_zeros)
 
-                with TPE(max_workers) as executor:
-                    alpha_zeros = list(executor.map(self.expand, alpha_zeros))
+                # with TPE(max_workers) as executor:
+
+                alpha_zeros = list(map(self.expand, alpha_zeros))
 
                 self.get_values(alpha_zeros)
 
-                with TPE(max_workers) as executor:
-                    alpha_zeros = list(executor.map(self.backup, alpha_zeros))
+                # with TPE(max_workers) as executor:
+                alpha_zeros = list(map(self.backup, alpha_zeros))
 
                 # for az in alpha_zeros:
                 #     assert az.curr_node["parent"] is None
@@ -509,8 +511,8 @@ class ENAS(nn.Module):
             if len(alpha_zeros) == 0:
                 break
 
-        with TPE(max_workers) as executor:
-            new_memories = list(executor.map(self.get_memories, final_alpha_zeros))
+        # with TPE(max_workers) as executor:
+        new_memories = list(map(self.get_memories, final_alpha_zeros))
 
         #so I am returning a list of memories
         #[memories, memories]
@@ -582,7 +584,8 @@ class ENAS(nn.Module):
 
         policies = torch.cat(policies)
 
-        search_probas_loss = -search_probas.unsqueeze(0).mm(torch.log(policies.unsqueeze(-1)))/len(self.batch_size)
+        search_probas_loss = -search_probas.unsqueeze(0).mm(torch.log(policies.unsqueeze(-1)))
+        search_probas_loss /= len(self.batch_size)
         #/self.batch_size
 
         # values += 1

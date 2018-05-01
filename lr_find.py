@@ -46,7 +46,7 @@ def lr_find_arch(controller, batch_size=32):
 
     return [controller.arch_lr_find(arch, data) for arch in archs]
 
-def lr_find(lr_find_type):
+def lr_finder(lr_find_type):
     controller = ENAS()
     if controller.has_cuda:
         controller = controller.cuda()

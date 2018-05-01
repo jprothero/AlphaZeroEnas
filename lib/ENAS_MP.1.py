@@ -360,30 +360,27 @@ class ENAS(nn.Module):
     @staticmethod
     def simulate(params):
         az = params["az"]
-        starting_indices = params["starting_indices"]
-        decision_list = params["decision_list"]
-        check_condition = params["check_condition"]
-
+        starting_indices
         if az.curr_node["d"] > az.max_depth-1: #was >=
             return az
 
-        trajectory = az.select(starting_indices, decision_list)
+        trajectory = az.select(self.starting_indices, self.decision_list)
 
         depth = az.curr_node["d"]
-        layer_idx = depth // len(decision_list)
-        decision_idx = depth % len(decision_list)
-        decision_name = decision_list[decision_idx]
+        layer_idx = depth // len(self.decision_list)
+        decision_idx = depth % len(self.decision_list)
+        decision_name = self.decision_list[decision_idx]
 
         while True:
-            skip_curr = check_condition(az, layer_idx, decision_name)
+            skip_curr = self.check_condition(az, layer_idx, decision_name)
             if not skip_curr:
                 break
             else:
                 az.curr_node["d"] += 1
                 depth = az.curr_node["d"]
-                layer_idx = depth // len(decision_list)
-                decision_idx = depth % len(decision_list)
-                decision_name = decision_list[decision_idx]
+                layer_idx = depth // len(self.decision_list)
+                decision_idx = depth % len(self.decision_list)
+                decision_name = self.decision_list[decision_idx]
 
         az.trajectory = trajectory
         az.decision_idx = decision_idx
@@ -462,15 +459,8 @@ class ENAS(nn.Module):
             print(f"Choice {i}")
             for j in range(num_sims):
                 print(f"Sim {j}")
-                simulate_params = [{
-                    "az": az,
-                    "starting_indices": self.starting_indices,
-                    "decision_list": self.decision_list,
-                    "check_condition": self.check_condition
-                } for az in alpha_zeros]
-
                 with PPE(max_workers) as executor:
-                    alpha_zeros = list(executor.map(simulate, simulate_params))
+                    alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
 
                 # if j > 0:
                 #     set_trace()

@@ -432,7 +432,7 @@ class ENAS(nn.Module):
         return az
 
     def make_architecture_mp(self, kwargs):
-        ctx = get_context("forkserver")
+        # ctx = get_context("forkserver")
         num_archs, num_sims, max_workers = \
             kwargs["num_archs"], kwargs["num_sims"], kwargs["max_workers"]
         self.max_workers = max_workers
@@ -459,11 +459,11 @@ class ENAS(nn.Module):
             start = datetime.datetime.now()
             for j in range(num_sims):
                 print(f"Sim {j}")
-                # with TPE(max_workders) as executor:
-                #     alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
-
-                with ctx.Pool() as executor:
+                with TPE(max_workders) as executor:
                     alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
+
+                # with ctx.Pool() as executor:
+                #     alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
 
                 # if j > 0:
                 #     set_trace()
@@ -482,7 +482,7 @@ class ENAS(nn.Module):
 
                 # with PPE(max_workers) as executor:
                 #     alpha_zeros = list(executor.map(self.reset_to_root, alpha_zeros))
-                if j % 5 == 4:
+                if j % 10 == 9:
                     end = datetime.datetime.now()
                     difference = end - start
                     # print(difference.seconds)

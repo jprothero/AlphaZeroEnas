@@ -157,9 +157,9 @@ class ENAS(nn.Module):
             if key is "filters":
                 self.max_depth += 1
             elif key is "skips": 
-                self.max_depth += len(val) - 2
+                self.max_depth += self.num_layers - 2
             else:
-                self.max_depth += len(val)
+                self.max_depth += self.num_layers
 
         total_embeddings = 0
         for _, lst in self.decisions.items():

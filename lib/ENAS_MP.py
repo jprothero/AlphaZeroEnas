@@ -470,7 +470,7 @@ class ENAS(nn.Module):
                 } for az in alpha_zeros]
 
                 with PPE(max_workers) as executor:
-                    alpha_zeros = list(executor.map(simulate, simulate_params))
+                    alpha_zeros = list(executor.map(self.simulate, simulate_params))
 
                 # if j > 0:
                 #     set_trace()

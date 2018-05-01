@@ -432,7 +432,7 @@ class ENAS(nn.Module):
         return az
 
     def make_architecture_mp(self, kwargs):
-        ctx = get_context("forkserver")
+        ctx = get_context("spawn")
         num_archs, num_sims, max_workers = \
             kwargs["num_archs"], kwargs["num_sims"], kwargs["max_workers"]
         self.max_workers = max_workers

@@ -454,8 +454,8 @@ class ENAS(nn.Module):
         i = 0
         while True:
             print(f"Choice {i}")
+            start = datetime.datetime.now()
             for j in range(num_sims):
-                start = datetime.datetime.now()
                 print(f"Sim {j}")
                 with TPE(max_workers) as executor:
                     alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
@@ -480,7 +480,7 @@ class ENAS(nn.Module):
                 if j % 5 == 4:
                     end = datetime.datetime.now()
                     difference = end - start
-                    print(difference.microseconds) / 1000000
+                    print(difference.seconds)
                     # print(difference.seconds)
 
             # with PPE(max_workers) as executor:

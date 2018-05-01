@@ -804,8 +804,8 @@ class ENAS(nn.Module):
                 self.arch = nn.ModuleList(arch)
 
             def forward(self, input):
-                # skips = np.array(arch_skips).astype("float32")
-                skips = torch.tensor(arch_skips).float()
+                skips = np.array(arch_skips).astype("float32")
+                # skips = torch.tensor(arch_skips).float()
                 if self.has_cuda:
                     skips = skips.cuda()
                 x = input
@@ -818,7 +818,7 @@ class ENAS(nn.Module):
                             skips /= skips_total
                             skip_attention = 0
                             for k, s in enumerate(skips):
-                                skip_attention += layer_outputs[k]*s#*float(s) 
+                                skip_attention += layer_outputs[k]*float(s) 
                             x = (skip_attention + x) / 2
                     
                     x = actv(layer(x))

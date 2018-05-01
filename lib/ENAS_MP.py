@@ -459,7 +459,7 @@ class ENAS(nn.Module):
             start = datetime.datetime.now()
             for j in range(num_sims):
                 print(f"Sim {j}")
-                with TPE(max_workders) as executor:
+                with TPE(max_workers) as executor:
                     alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
 
                 # with ctx.Pool() as executor:

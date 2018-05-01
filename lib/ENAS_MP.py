@@ -675,7 +675,7 @@ class ENAS(nn.Module):
         #     print(f"Dist: {dist_matching_loss.data.numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
 
         if self.has_cuda:
-            print(f"Probas: {search_probas_loss.data.cpu().numpy()}, Value {value_loss.data.numpy()}")
+            print(f"Probas: {search_probas_loss.data.cpu().numpy()}, Value {value_loss.data.cpu().numpy()}")
         else:
             print(f"Probas: {search_probas_loss.data.numpy()}, Value {value_loss.data.numpy()}")
             

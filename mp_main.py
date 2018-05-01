@@ -74,6 +74,20 @@ def main(args, max_memories=100000, num_train_iters=25,
         max_score = -1
         max_score_decisions = None
 
+    #idea: what if instead of scaling per parameter we could just scale by number of parameters
+    #so basically the minimum possible parameters would be /1 and the maximum number of parameters would be
+    #/max_params I guess
+    #so the question is how do we figure that out. 
+
+    #a cool benefit of this is that we will be able to scale the score to be between -1 and 1, so we wont have to scrunch anything
+
+    #so we could just get the parameter count
+    #but we need to figure out the min and the max parameter count.
+    #I guess that would be number of filters * num_layers?
+    #we could build that up when we make the trajectory
+    #or what we could do is have a function that makes a model with all of the settings we think will impact the parameters
+    #at the max, and the min, that sounds like a good plan
+
     while True:    
         make_arch_hps = {
             "num_archs": num_archs
@@ -168,6 +182,8 @@ def main(args, max_memories=100000, num_train_iters=25,
 
             p.dump(max_score_decisions, open("max_score_decisions.p", "wb"))
             p.dump(max_score_decisions, open("max_score_decisions_backup.p", "wb"))  
+
+            print("Max score decisions:", max_score_decisions)
 
         controller.fastai_train(controller, memories, controller_batch_size, min_memories=max_memories//100)
         # normal_train(controller, controller_optim, memories[:128], controller_batch_size)

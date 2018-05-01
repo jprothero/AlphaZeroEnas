@@ -548,6 +548,9 @@ class ENAS(nn.Module):
     def forward(self, X):
         pass
 
+    def get_min_parameters(self):
+        pass
+
     def train_controller(self, _=None, __=None):
         batch = sample(self.memories, self.batch_size)
 

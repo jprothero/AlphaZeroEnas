@@ -64,7 +64,6 @@ def main(args, max_memories=100000, num_train_iters=25,
 
     # controller_optim = optim.SGD(params=controller.parameters(), lr=.4, momentum=.9)
 
-    ctx = get_context("forkserver")
     cnt = 0
 
     try:
@@ -93,10 +92,8 @@ def main(args, max_memories=100000, num_train_iters=25,
             , "num_sims": num_sims
         }
 
-    mp_input = [dc(make_arch_hps) for _ in range(num_concurrent)]
-
     while True:    
-        mp_input = dc(mp_input)
+        ctx = get_context("forkserver")
         print("Iteration {}".format(cnt))
         controller.eval()
 
@@ -104,7 +101,8 @@ def main(args, max_memories=100000, num_train_iters=25,
             all_new_memories = []
 
             with ctx.Pool() as executor:
-                list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, mp_input))
+                list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
+                    [dc(make_arch_hps) for _ in range(num_concurrent)]))
 
             # with TPE(macro_max_workers) as executor:
             #     list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
@@ -157,6 +155,7 @@ def main(args, max_memories=100000, num_train_iters=25,
                     pred = outputs.data.max(1, keepdim=True)[1]
                     correct = pred.eq(targets.data.view_as(pred)).float().sum()
                     score = correct/len(targets)
+                    controller.scale_by_parameter_size(score)
                     if score > max_score:
                         max_score = score
                         max_score_decisions = decisions
@@ -164,6 +163,7 @@ def main(args, max_memories=100000, num_train_iters=25,
                     score *= 2
                     score -= 1
                     score = score.item()
+
                     break
 
             for memory in new_memories:

@@ -227,6 +227,29 @@ class ENAS(nn.Module):
         self.softmaxs = nn.ModuleList(softmaxs)
         self.embeddings = nn.ParameterList(embeddings)
 
+        min_layers = []
+        max_layers = []
+
+        min_settings = {}
+        max_settings = {}
+
+        for key, val in self.decisions.items():
+            min_settings[key] = val[0]
+            max_settings[key] = val[-1]
+            
+        for _ in range(self.num_layers):
+            min_layers.append(min_settings)
+            max_layers.append(max_settings)
+            
+        min_arch = self.create_arch_from_settings(min_layers)
+        max_arch = self.create_arch_from_settings(max_layers)
+
+        self.min_params = self.count_parameters(min_arch)
+        self.max_params = self.count_parameters(max_arch)
+
+    def scale_by_parameter_size(self, x):
+        return (x - self.min_params) / (self.max_params - self.min_params)
+
     def check_condition(self, az, layer_idx, decision_name):
         condition = self.decision_conditions[decision_name]
         return condition(layer_idx)
@@ -892,6 +915,10 @@ class ENAS(nn.Module):
                 return out
 
         return Arch()
+
+    @staticmethod
+    def count_parameters(model):
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     def create_arch_from_settings(self, settings):
         arch = []

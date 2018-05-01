@@ -229,8 +229,10 @@ class ENAS(nn.Module):
         condition = self.decision_conditions[decision_name]
         return condition(layer_idx)
 
-    def embedding_from_trajectory(self, az):
-        trajectory = az.trajectory
+    def embedding_from_trajectory(self, az=None, trajectory=None):
+        if trajectory is None:
+            trajectory = az.trajectory
+
         if len(trajectory) > 0:
             indices = []
             weights = dict()
@@ -296,7 +298,7 @@ class ENAS(nn.Module):
 
             emb = final_emb.view(1, 1, -1)
         else:
-            emb = az.orig_emb.view(1, 1, -1)
+            emb = self.first_emb.view(1, 1, -1)
 
         return emb
 
@@ -550,6 +552,9 @@ class ENAS(nn.Module):
         values = []
         scores = []
 
+        #we could speed this up like by batching the cont_outs
+        #we can try it later
+
         value_loss = 0
         for memory in batch:
             trajectory = memory["trajectory"]
@@ -561,7 +566,9 @@ class ENAS(nn.Module):
             #     # cont_out = self.controller(self.first_emb)[0].squeeze(0)
             #     cont_out = self.controller(self.first_emb)
             # else:
-            embedding = self.embedding_from_trajectory(trajectory, training=True)
+            embedding = self.embedding_from_trajectory(trajectory=trajectory)
+
+            cont_out = self.controller(embedding)
 
             scores.append(score)
             # if self.training:

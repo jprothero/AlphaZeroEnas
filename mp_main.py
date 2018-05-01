@@ -59,24 +59,13 @@ def create_data_loaders(train_batch_size, test_batch_size, cuda):
 
     return trainloader, testloader
 
-def main(args=None, max_memories=1e5, controller_batch_size=512, num_train_iters=25,
-        train_batch_size=32, test_batch_size=64, num_archs=64, num_concurrent=2, 
-        macro_max_workers=None, micro_max_workers=None, num_sims=20): 
+def main(args, max_memories=100000, controller_batch_size=512, num_train_iters=25,
+        train_batch_size=32, test_batch_size=64): 
 
-    if args is not None:
-        num_sims = int(args.num_sims)
-        num_archs = int(args.num_archs)
-        num_concurrent = int(args.num_concurrent)
-        micro_max_workers = int(args.micro_max_workers) if args.micro_max_workers is not None else None
+    num_sims = int(args.num_sims)
+    num_archs = int(args.num_archs)
+    num_concurrent = int(args.num_concurrent)
 
-    if micro_max_workers is None:
-        micro_max_workers = max(num_archs//2, 1)
-
-    if macro_max_workers is None:
-        macro_max_workers = num_concurrent
-
-    if max_memories is None:
-        max_memories = controller_batch_size*3
     #batch_size=4, num_train_iters=100 is good
     #batch_size=8, num_train_iters=50 is good
     #batch_size=16, num_train_iters=30 has been working well
@@ -105,7 +94,6 @@ def main(args=None, max_memories=1e5, controller_batch_size=512, num_train_iters
     make_arch_hps = {
         "num_archs": num_archs
         , "num_sims": num_sims
-        , "max_workers": micro_max_workers
     }
 
     ctx = get_context("forkserver")
@@ -216,10 +204,9 @@ def normal_train(controller, controller_optim, memories, batch_size, num_batches
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_sims", default=20)
-    parser.add_argument("--num_archs", default=cpu_count())
+    parser.add_argument("--num_sims", default=100)
+    parser.add_argument("--num_archs", default=128)
     parser.add_argument("--num_concurrent", default=cpu_count())
-    parser.add_argument("--micro_max_workers", default=1)
     args = parser.parse_args()
 
     main(args)

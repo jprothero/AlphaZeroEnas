@@ -893,6 +893,101 @@ class ENAS(nn.Module):
 
         return Arch()
 
+    def create_arch_from_settings(self, settings):
+        arch = []
+        arch_skips = []
+        arch_activations = []
+
+        for i, layer_settings in enumerate(settings):
+            filters = layer_settings["filters"]
+            groups = layer_settings["groups"]
+            kernels = layer_settings["kernels"]
+            dilations = layer_settings["dilations"]
+            activations = layer_settings["activations"]
+            strides = layer_settings["strides"]
+            skips = layer_settings["skips"]
+
+            if i == 0:
+                in_ch = self.CH
+            else:
+                in_ch = filters
+
+            out_channels = filters
+
+            groups = groups - (out_channels % groups)
+
+            if i == 0:
+                groups = 1
+            else:
+                if groups > in_ch:
+                    if in_ch > out_channels:
+                        groups = out_channels
+                    else:
+                        groups = in_ch
+            padding = np.ceil(self.R*((strides-1)/2))
+            
+            padding += np.ceil(((kernels-1) + (kernels-1)*(dilations-1))/2)
+
+            conv = nn.Sequential(*[nn.Conv2d(in_channels=in_ch, 
+                            out_channels=out_channels, 
+                            kernel_size=kernels,
+                            stride=strides,
+                            dilation=dilations,
+                            groups=groups,
+                            padding=padding),
+                            nn.BatchNorm2d(out_channels)])
+
+            arch.append(conv)
+            if i > 1:
+                arch_skips.append(skips)
+
+            arch_activations.append(activations)
+
+        arch.append(
+            nn.Sequential(*[
+                nn.Linear(filters*self.R*self.C, self.num_classes)
+                , nn.LogSoftmax(dim=1)
+            ])
+        )
+
+        has_cuda = self.has_cuda
+
+        class Arch(nn.Module):
+            def __init__(self):
+                super(Arch, self).__init__()
+
+                self.has_cuda = has_cuda
+                self.arch = nn.ModuleList(arch)
+
+            def forward(self, input):
+                skips = np.array(arch_skips).astype("float32")
+                # skips = torch.tensor(arch_skips).float()
+                # if self.has_cuda:
+                #     skips = skips.cuda()
+                x = input
+                layer_outputs = []
+                for i, (layer, actv) in enumerate(zip(self.arch, arch_activations)):
+                    if i > 1:
+                        skips = skips[:i]
+                        skips_total = (1.0 * skips.sum())
+                        if skips_total != 0:
+                            skips /= skips_total
+                            skip_attention = 0
+                            for k, s in enumerate(skips):
+                                skip_attention += layer_outputs[k]*float(s) 
+                            x = (skip_attention + x) / 2
+                    
+                    x = actv(layer(x))
+                    layer_outputs.append(x)
+
+                x = x.view(x.shape[0], -1)
+
+                out = self.arch[-1](x)
+
+                return out
+
+        return Arch()
+
     def arch_lr_find(self, arch, data, start_lr=1e-5, end_lr=10):
         arch = FastaiWrapper(model=arch, crit=None)
         learn = Learner(data=data, models=arch)

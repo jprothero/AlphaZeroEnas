@@ -16,7 +16,7 @@ from lib.utils import create_data_loaders
 
 from torch.multiprocessing import Pool, get_context, cpu_count
 
-from copy import deepcopy
+from copy import deepcopy as dc
 
 from tqdm import tqdm
 
@@ -88,12 +88,15 @@ def main(args, max_memories=100000, num_train_iters=25,
     #or what we could do is have a function that makes a model with all of the settings we think will impact the parameters
     #at the max, and the min, that sounds like a good plan
 
-    while True:    
-        make_arch_hps = {
+    make_arch_hps = {
             "num_archs": num_archs
             , "num_sims": num_sims
         }
 
+    mp_input = [dc(make_arch_hps) for _ in range(num_concurrent)]
+
+    while True:    
+        mp_input = dc(mp_input)
         print("Iteration {}".format(cnt))
         controller.eval()
 
@@ -101,8 +104,7 @@ def main(args, max_memories=100000, num_train_iters=25,
             all_new_memories = []
 
             with ctx.Pool() as executor:
-                list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
-                    [make_arch_hps for _ in range(num_concurrent)]))
+                list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, mp_input))
 
             # with TPE(macro_max_workers) as executor:
             #     list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
@@ -168,7 +170,7 @@ def main(args, max_memories=100000, num_train_iters=25,
                 memory["score"] = score
 
             memories.extend(new_memories) 
-            cnt += 1
+        cnt += 1
 
         memories = memories[-max_memories:]
         print(f"Num memories: {len(memories)}")

@@ -21,8 +21,8 @@ from copy import deepcopy as dc
 
 from concurrent.futures import ProcessPoolExecutor as PPE
 from concurrent.futures import ThreadPoolExecutor as TPE
-from torch.multiprocessing import Pool, get_context
-mp.set_start_method("forkserver")
+from torch.multiprocessing import Pool, set_start_method
+set_start_method("forkserver")
 
 # https://stackoverflow.com/questions/8277715/multiprocessing-in-a-pipeline-done-right
 #good multiprocessing/pipeline resource

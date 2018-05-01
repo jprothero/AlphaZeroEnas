@@ -680,10 +680,13 @@ class ENAS(nn.Module):
 
         return total_loss
 
-    def fastai_train(self, controller, memories, batch_size, num_cycles=10, epochs=1):
+    def fastai_train(self, controller, memories, batch_size, num_cycles=10, epochs=1, min_memories=None):
         self.memories = memories
         self.batch_size = batch_size
-        if (len(memories) < batch_size):
+        if min_memories is None:
+            min_memories = batch_size*30
+            
+        if (len(memories) < min_memories):
             print("Have {} memories, need {}".format(len(memories), batch_size))
             return
         controller_wrapped = FastaiWrapper(model=controller, crit=self.train_controller)

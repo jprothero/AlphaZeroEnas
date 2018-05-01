@@ -98,6 +98,14 @@ def main(args, max_memories=100000, controller_batch_size=512, num_train_iters=2
 
     ctx = get_context("forkserver")
     cnt = 0
+
+    try:
+        p.load(open("max_score.p", "rb"))
+        p.load(open("max_score_decisions.p", "rb"))
+    except:
+        max_score = -1
+        max_score_decisions = None
+
     while True:    
         print("Iteration {}".format(cnt))
         controller.eval()
@@ -161,6 +169,9 @@ def main(args, max_memories=100000, controller_batch_size=512, num_train_iters=2
                     pred = outputs.data.max(1, keepdim=True)[1]
                     correct = pred.eq(targets.data.view_as(pred)).float().sum()
                     score = correct/len(targets)
+                    if score > max_score:
+                        max_score = score
+                        max_score_decisions = decisions
                     print(f"Score: {score}")
                     score *= 2
                     score -= 1
@@ -176,13 +187,20 @@ def main(args, max_memories=100000, controller_batch_size=512, num_train_iters=2
         memories = memories[-max_memories:]
         print(f"Num memories: {len(memories)}")
         p.dump(memories, open("memories.p", "wb"))
-        p.dump(memories, open("memories1.p", "wb"))            
+        p.dump(memories, open("memories_backup.p", "wb"))            
         print("Successfully saved memories")
 
-        controller.fastai_train(controller, memories, controller_batch_size)
+        if max_score_decisions is not None:
+            p.dump(max_score, open("max_score.p", "wb"))
+            p.dump(max_score, open("max_score_backup.p", "wb"))  
+
+            p.dump(max_score_decisions, open("max_score_decisions.p", "wb"))
+            p.dump(max_score_decisions, open("max_score_decisions_backup.p", "wb"))  
+
+        controller.fastai_train(controller, memories, controller_batch_size, min_memories=max_memories//100)
         # normal_train(controller, controller_optim, memories[:128], controller_batch_size)
         torch.save(controller.state_dict(), 'controller.p')
-        torch.save(controller.state_dict(), 'controller1.p')
+        torch.save(controller.state_dict(), 'controller_backup.p')
         print("Successfully saved controller")   
 
 def normal_train(controller, controller_optim, memories, batch_size, num_batches=100):

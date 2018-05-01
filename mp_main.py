@@ -93,7 +93,7 @@ def main(args, max_memories=100000, num_train_iters=25,
         }
 
     while True:    
-        ctx = get_context("forkserver")
+        ctx = get_context("spawn") #forkserver better but doesnt work on colab
         print("Iteration {}".format(cnt))
         controller.eval()
 
@@ -125,6 +125,11 @@ def main(args, max_memories=100000, num_train_iters=25,
             arch_optim = optim.Adam(arch.parameters(), lr=5e-4) #5e-5 was good  #5e-3 was the lr find one, but seems too big
             arch.train()
 
+            num_parameters = controller.count_parameters(arch)
+            #I dont want it to zero out stuff, so I can probably do like -.1 or something, right?
+            #would normally be 1, but its a kind of label smoothing
+            scaler = 1.1 - controller.scale_by_parameter_size(num_parameters) #1 - x because we want 0 to be 1 and 1 to be 0
+
             for i, (inputs, targets) in enumerate(trainloader):
                 if controller.has_cuda:
                     inputs = inputs.cuda()
@@ -155,7 +160,7 @@ def main(args, max_memories=100000, num_train_iters=25,
                     pred = outputs.data.max(1, keepdim=True)[1]
                     correct = pred.eq(targets.data.view_as(pred)).float().sum()
                     score = correct/len(targets)
-                    controller.scale_by_parameter_size(score)
+                    score *= scaler #get scaled between 0 and 1 based on the parameter size
                     if score > max_score:
                         max_score = score
                         max_score_decisions = decisions

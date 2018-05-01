@@ -64,11 +64,6 @@ def main(args, max_memories=100000, num_train_iters=25,
 
     # controller_optim = optim.SGD(params=controller.parameters(), lr=.4, momentum=.9)
 
-    make_arch_hps = {
-        "num_archs": num_archs
-        , "num_sims": num_sims
-    }
-
     ctx = get_context("forkserver")
     cnt = 0
 
@@ -80,6 +75,11 @@ def main(args, max_memories=100000, num_train_iters=25,
         max_score_decisions = None
 
     while True:    
+        make_arch_hps = {
+            "num_archs": num_archs
+            , "num_sims": num_sims
+        }
+
         print("Iteration {}".format(cnt))
         controller.eval()
 

@@ -559,20 +559,33 @@ class ENAS(nn.Module):
         #we could speed this up like by batching the cont_outs
         #we can try it later
 
+        #the training is supppppeeerrrr slow
+        #it must be because we aren't using batching
+
+        #well lets start adding it
+
+        # device = torch.device("cuda" if self.has_cuda else "cpu")
+
+        embeddings = []
+        # embeddings = torch.zeros(self.batch_size, 1, self.controller_dims, device=device).float()
+        decision_indices = []
+
         value_loss = 0
-        for memory in batch:
+        for i, memory in enumerate(batch):
             trajectory = memory["trajectory"]
             score = memory["score"]
             sp = memory["search_probas"]
             decision_idx = memory["decision_idx"]
+            decision_indices.append(decision_idx)
 
             # if len(trajectory) == 0:
             #     # cont_out = self.controller(self.first_emb)[0].squeeze(0)
             #     cont_out = self.controller(self.first_emb)
             # else:
             embedding = self.embedding_from_trajectory(trajectory=trajectory)
+            embeddings.append(embedding)
 
-            cont_out = self.controller(embedding)
+            # cont_out = self.controller(embedding)
 
             #this is wrong but at some point we need to do something like this
             #we need to scale the score by the parameters value if the value is associated with increased
@@ -588,23 +601,36 @@ class ENAS(nn.Module):
             scores.append(score)
             # if self.training:
             #     self.value_head.register_hook(print)
-            value = self.value_head(cont_out.squeeze())
+            # value = self.value_head(cont_out.squeeze())
             # value_loss += F.mse_loss(value, score)
-            values.append(value)
+            # values.append(value)
+            # logits = self.softmaxs[decision_idx](cont_out).squeeze()
+            # probas = F.softmax(logits.unsqueeze(0), dim=1).squeeze()
+
+            # policies.append(probas)
+            search_probas.append(sp)
+        embeddings = torch.cat(embeddings)
+        search_probas = torch.cat(search_probas)
+        scores = torch.tensor(scores)
+        
+        # search_probas = Variable(search_probas)
+
+        if self.has_cuda:
+            search_probas = search_probas.cuda()
+            embeddings = embeddings.cuda()
+            scores = scores.cuda()
+
+        cont_outs = self.controller(embeddings)
+
+        for cont_out, decision_idx in zip(cont_out, decision_indices):
             logits = self.softmaxs[decision_idx](cont_out).squeeze()
             probas = F.softmax(logits.unsqueeze(0), dim=1).squeeze()
 
             policies.append(probas)
-            search_probas.append(sp)
-        search_probas = torch.cat(search_probas)
-        search_probas = Variable(search_probas)
-        if self.has_cuda:
-            search_probas = search_probas.cuda()
 
-        values = torch.cat(values)
-        scores = torch.tensor(scores)
-        if self.has_cuda:
-            scores = scores.cuda()
+        values = self.value_head(cont_outs)
+            
+        # values = torch.cat(values)
         # # if self.training:
         # #     values.register_hook(print)
 

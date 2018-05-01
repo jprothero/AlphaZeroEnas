@@ -697,8 +697,9 @@ class ENAS(nn.Module):
         controller_learner.model.real_forward = controller_learner.model.forward
 
         controller_learner.model.forward = lambda x: x
-        controller_learner.fit(2, epochs, cycle_len=num_cycles, use_clr_beta=(10, 13.68, 0.95, 0.85), 
-            wds=1e-4)
+        controller_learner.fit(2, epochs, wds=1e-6)
+        # controller_learner.fit(2, epochs, cycle_len=num_cycles, use_clr_beta=(10, 13.68, 0.95, 0.85), 
+        #     wds=1e-4)
 
         controller_learner.model.forward = controller_learner.model.real_forward
 

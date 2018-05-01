@@ -112,6 +112,7 @@ def main(args=None, max_memories=1e5, controller_batch_size=512, num_train_iters
         controller.eval()
 
         if num_concurrent > 1:
+            print(num_concurrent)
             all_new_memories = []
             with TPE(macro_max_workers) as executor:
                 list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 

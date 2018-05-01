@@ -45,45 +45,6 @@ class FastaiWrapper():
     def get_layer_groups(self, precompute=False):
         return self.model
 
-class MPUtil:
-    def __init__(self, az, starting_indices, decision_list, check_condition):
-        self.az = dc(az)
-        self.starting_indices = dc(starting_indices)
-        self.decision_list = dc(decision_list)
-        self.check_condition = dc(check_condition)
-
-def simulate(mp_util):
-    az = mp_util.az
-    starting_indices = mp_util.starting_indices
-    decision_list = mp_util.decision_list
-    check_condition = mp_util.check_condition
-
-    if az.curr_node["d"] > az.max_depth-1: #was >=
-        return az
-
-    trajectory = az.select(starting_indices, decision_list)
-
-    depth = az.curr_node["d"]
-    layer_idx = depth // len(decision_list)
-    decision_idx = depth % len(decision_list)
-    decision_name = decision_list[decision_idx]
-
-    while True:
-        skip_curr = check_condition(az, layer_idx, decision_name)
-        if not skip_curr:
-            break
-        else:
-            az.curr_node["d"] += 1
-            depth = az.curr_node["d"]
-            layer_idx = depth // len(decision_list)
-            decision_idx = depth % len(decision_list)
-            decision_name = decision_list[decision_idx]
-
-    az.trajectory = trajectory
-    az.decision_idx = decision_idx
-
-    return az
-
 #https://arxiv.org/pdf/1704.00325.pdf
 #parallel MCTS paper, good resource
 
@@ -95,8 +56,6 @@ def skip_mask(layer_idx, probas):
     probas[layer_idx-1:] = 0
     probas /= (1.0 * probas.sum())
     return probas
-
-
 
 class ENAS(nn.Module):
     def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=4, controller_dims=70, 
@@ -398,7 +357,32 @@ class ENAS(nn.Module):
         for az, cont_out in zip(alpha_zeros, cont_outs):
             az.cont_out = cont_out
         
-    
+    def simulate(az):
+        if az.curr_node["d"] > az.max_depth-1: #was >=
+            return az
+
+        trajectory = az.select(self.starting_indices, self.decision_list)
+
+        depth = az.curr_node["d"]
+        layer_idx = depth // len(self.decision_list)
+        decision_idx = depth % len(self.decision_list)
+        decision_name = self.decision_list[decision_idx]
+
+        while True:
+            skip_curr = self.check_condition(az, layer_idx, decision_name)
+            if not skip_curr:
+                break
+            else:
+                az.curr_node["d"] += 1
+                depth = az.curr_node["d"]
+                layer_idx = depth // len(self.decision_list)
+                decision_idx = depth % len(self.decision_list)
+                decision_name = self.decision_list[decision_idx]
+
+        az.trajectory = trajectory
+        az.decision_idx = decision_idx
+
+        return az
 
     def get_memories(self, az):
         az.new_memories[-1]["decisions"] = az.decisions
@@ -472,11 +456,8 @@ class ENAS(nn.Module):
             print(f"Choice {i}")
             for j in range(num_sims):
                 print(f"Sim {j}")
-                mp_utils = [MPUtil(az, self.starting_indices, self.decision_list, self.check_condition)
-                for az in alpha_zeros]
-
-                with PPE(max_workers) as executor:
-                    alpha_zeros = list(executor.map(simulate, mp_utils))
+                with TPE(max_workers) as executor:
+                    alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
 
                 # if j > 0:
                 #     set_trace()

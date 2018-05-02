@@ -125,6 +125,27 @@ def main(args, max_memories=100000, num_train_iters=25,
             arch_optim = optim.Adam(arch.parameters(), lr=5e-4) #5e-5 was good  #5e-3 was the lr find one, but seems too big
             arch.train()
 
+            #well the parameter thing doesnt work, it was a good idea but its not that simple I guess
+            #let me think what I want to do. 
+            #I really need to think about Yu's project.
+            #I dont want to come in unprepared. 
+            #probably as a gesture I would like to bring in the captcha thing
+            #and I would like to do some experiments with sequential gan stuff,
+            #i.e. with sound
+            #but for now... 
+            #I can scale by num filters maybe,
+            #basically we want to maximize performance per filter
+            #the other option is that for now we leave out num filters and make it a hyper parameter
+            #that's probably okay too...
+            #but why not get it working how we want now
+            #we want to maximize score/cost
+            #we have score
+            #cost is usually number of parameters
+            #if we could fix that, that would be ideal.... 
+            #but how
+            #it seems like it isn't simple to calculate how many parameters there are.
+            #there are some subtle interactions(i dont know why)
+
             num_parameters = controller.count_parameters(arch)
             #I dont want it to zero out stuff, so I can probably do like -.1 or something, right?
             #would normally be 1, but its a kind of label smoothing
@@ -132,7 +153,14 @@ def main(args, max_memories=100000, num_train_iters=25,
             #so it will scale so min params is 0 and max is 1, then we flip we 1 - that
             #then we add .1?
             scaler = 1 - controller.scale_by_parameter_size(num_parameters) #1 - x because we want 0 to be 1 and 1 to be 0
-            scaler += .1
+            #okay so we get the scaler between 0 and 1
+            #0 is max params, 1 is min params
+            #we want to weigh this, i.e. scale the scaler, to the point we care about
+            #by default it is 100%, the performance of max_params needs to double the performance of min_params
+            #to justify doing it.
+            #this may be too extreme. I think something like 10% would be okay.
+            scaler *= .1 #scale from 0-1 to 0-.1
+            scaler = 1-scaler #between .9 and 1
 
             for i, (inputs, targets) in enumerate(trainloader):
                 if controller.has_cuda:
@@ -164,7 +192,13 @@ def main(args, max_memories=100000, num_train_iters=25,
                     pred = outputs.data.max(1, keepdim=True)[1]
                     correct = pred.eq(targets.data.view_as(pred)).float().sum()
                     score = correct/len(targets)
+                    #so we have a scaler of .9
+                    #we want something like score = score*scaler, and scaler is between .9 and 1
+                    #so up above we should make scaler 1- after we scale it
                     score *= scaler #get scaled between 0 and 1 based on the parameter size
+                    #one question is, do we want to favor the search probas more for high score options?
+                    #I dont think so, it should be okay, at the end of the day the alpha zero backbone is the value
+                    #guiding the UCT
                     if score > max_score:
                         max_score = score
                         max_score_decisions = decisions

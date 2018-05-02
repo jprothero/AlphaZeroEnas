@@ -116,6 +116,8 @@ class ENAS(nn.Module):
                 break
             i += 1
 
+        self.groups = list(reversed(self.groups))
+
         self.kernels = [
             1,
             3,
@@ -803,6 +805,16 @@ class ENAS(nn.Module):
 
         return learn
 
+    #sooo I want the min num filters and the max number filters
+    #min = num_layers times filters[0] and max = num_layers * filters[-1]
+    #and then basically we count up the filters as we make the architecture
+    #and make a scaling factor based on that.
+    #then one issue is that unless 32 filters is 100% better than 16 filters, it will probably
+    #end up always choosing 16 filters. that isn't necessarily bad, but we want a strong 
+    #what we could do is scale the scaler, i.e. make it something like 1 - (alpha*scaler)
+    #and that would mean that we only change the score a little bit based on the filters
+    #that way for example, if the difference is only a score of 10%, we wouldnt want that, but it it's any more
+    #than that, we would prefer the smaller number of filters
     def create_arch_from_decisions(self, decisions):
         f_d = decisions["filters"]
         g_d = decisions["groups"]

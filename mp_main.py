@@ -104,7 +104,7 @@ def main(args, max_memories=100000, num_train_iters=25,
 
             with mp.Pool() as executor:
                 list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
-                    [dc(make_arch_hps) for _ in range(num_concurrent)]))
+                    list([dc(make_arch_hps) for _ in range(num_concurrent)])))
 
             # with TPE(macro_max_workers) as executor:
             #     list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
@@ -256,7 +256,7 @@ def normal_train(controller, controller_optim, memories, batch_size, num_batches
     controller.eval()
 
 if __name__ == "__main__":
-    mp.set_start_method("spawn", force=True) #forkserver better but doesnt work on colab
+    mp.set_start_method("forkserver", force=True) #forkserver better but doesnt work on colab
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_sims", default=3)
     parser.add_argument("--num_archs", default=1)

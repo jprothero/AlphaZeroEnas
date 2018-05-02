@@ -104,7 +104,9 @@ def main(args, max_memories=100000, num_train_iters=25,
             all_new_memories = []
 
             with mp.Pool() as executor:
-                list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, mp_input)
+                list_of_all_new_memories = executor.map(controller.make_architecture_mp, mp_input)
+            
+            list_of_all_new_memories = list(list_of_all_new_memories)
 
             # with TPE(macro_max_workers) as executor:
             #     list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 

@@ -265,6 +265,10 @@ def normal_train(controller, controller_optim, memories, batch_size, num_batches
     controller.memories = None
     controller.eval()
 
+
+#note to self: next step is probably adding a function that takes the best architecture and does a fastai training on it
+#so that we can evaluate how good it is. also we should experiment with more options, more layers, more sims, etc
+#at least for now it appears to be avoiding 0's 
 if __name__ == "__main__":
     mp.set_start_method("forkserver", force=True) #forkserver better but doesnt work on colab
     parser = argparse.ArgumentParser()

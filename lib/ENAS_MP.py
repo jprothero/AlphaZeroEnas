@@ -777,6 +777,11 @@ class ENAS(nn.Module):
         #     wds=1e-4)
 
         controller_learner.model.forward = controller_learner.model.real_forward
+
+        del self.memories
+        del self.batch_size
+        del controller_learner.model.real_forward
+        del controller_learner
     #so let me think for a sec, the issue is in theory more filters will always be better at the cost of more memory and compute
     #so we should divide score by number of filters and multiply by the max number of filters, so it will be between 1/max_filters and
     #max_filters/max_filters = 1

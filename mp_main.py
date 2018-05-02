@@ -128,7 +128,11 @@ def main(args, max_memories=100000, num_train_iters=25,
             num_parameters = controller.count_parameters(arch)
             #I dont want it to zero out stuff, so I can probably do like -.1 or something, right?
             #would normally be 1, but its a kind of label smoothing
-            scaler = 1.1 - controller.scale_by_parameter_size(num_parameters) #1 - x because we want 0 to be 1 and 1 to be 0
+            #oh this is wrong
+            #so it will scale so min params is 0 and max is 1, then we flip we 1 - that
+            #then we add .1?
+            scaler = 1 - controller.scale_by_parameter_size(num_parameters) #1 - x because we want 0 to be 1 and 1 to be 0
+            scaler += .1
 
             for i, (inputs, targets) in enumerate(trainloader):
                 if controller.has_cuda:

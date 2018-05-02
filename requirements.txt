@@ -23,3 +23,4 @@ Pillow==5.1.0
 scikit_learn==0.19.1
 spacy==2.0.11
 torchvision==0.2.1
+fastai

@@ -14,7 +14,8 @@ from torch.autograd import Variable
 import argparse
 from lib.utils import create_data_loaders
 
-from torch.multiprocessing import Pool, get_context, cpu_count
+# from torch.multiprocessing import Pool, get_context, cpu_count
+import torch.multiprocessing as mp
 
 from copy import deepcopy as dc
 
@@ -94,15 +95,15 @@ def main(args, max_memories=100000, num_train_iters=25,
         }
 
     while True:    
-        from torch.multiprocessing import Pool, get_context, cpu_count
-        ctx = get_context("spawn") #forkserver better but doesnt work on colab
+        mp.set_start_method("spawn", force=True) #forkserver better but doesnt work on colab
+        mp.set_start_method("forkserver", force=True)
         print("Iteration {}".format(cnt))
         controller.eval()
 
         if num_concurrent > 1:
             all_new_memories = []
 
-            with ctx.Pool() as executor:
+            with mp.Pool() as executor:
                 list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
                     [dc(make_arch_hps) for _ in range(num_concurrent)]))
 
@@ -259,7 +260,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_sims", default=3)
     parser.add_argument("--num_archs", default=1)
-    parser.add_argument("--num_concurrent", default=cpu_count())
+    parser.add_argument("--num_concurrent", default=mp.cpu_count())
     parser.add_argument("--min_memories", default=None)
     parser.add_argument("--controller_batch_size", default=512)
     parser.add_argument("--num_fastai_batches", default=8)

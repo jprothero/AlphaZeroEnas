@@ -93,8 +93,8 @@ def main(args, max_memories=100000, num_train_iters=25,
             , "num_sims": num_sims
         }
 
+    ctx = get_context("spawn") #forkserver better but doesnt work on colab
     while True:    
-        ctx = get_context("spawn") #forkserver better but doesnt work on colab
         print("Iteration {}".format(cnt))
         controller.eval()
 

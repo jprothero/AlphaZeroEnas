@@ -36,6 +36,7 @@ def main(args, max_memories=100000, num_train_iters=25,
     num_concurrent = int(args.num_concurrent)
     controller_batch_size = int(args.controller_batch_size)
     min_memories = int(args.min_memories) if args.min_memories is not None else None
+    num_fastai_batches = int(args.num_fastai_batches)
     if min_memories is None:
         min_memories = max_memories // 100
 
@@ -49,7 +50,7 @@ def main(args, max_memories=100000, num_train_iters=25,
         print("Error loading memories: ", e)
         memories = []
 
-    controller = ENAS()
+    controller = ENAS(num_fastai_batches=num_fastai_batches)
     trainloader, testloader = create_data_loaders(train_batch_size, test_batch_size, cuda=controller.has_cuda)
     if controller.has_cuda:
         controller = controller.cuda()
@@ -260,6 +261,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_concurrent", default=cpu_count())
     parser.add_argument("--min_memories", default=None)
     parser.add_argument("--controller_batch_size", default=512)
+    parser.add_argument("--num_fastai_batches", default=8)
     args = parser.parse_args()
 
     main(args)

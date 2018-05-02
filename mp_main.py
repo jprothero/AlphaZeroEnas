@@ -94,8 +94,9 @@ def main(args, max_memories=100000, num_train_iters=25,
             , "num_sims": num_sims
         }
 
+
     while True:    
-        
+        mp_input = list([dc(make_arch_hps) for _ in range(num_concurrent)])
         print("Iteration {}".format(cnt))
         controller.eval()
 
@@ -103,8 +104,7 @@ def main(args, max_memories=100000, num_train_iters=25,
             all_new_memories = []
 
             with mp.Pool() as executor:
-                list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
-                    list([dc(make_arch_hps) for _ in range(num_concurrent)])))
+                list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, mp_input)
 
             # with TPE(macro_max_workers) as executor:
             #     list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 

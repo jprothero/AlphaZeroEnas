@@ -103,6 +103,7 @@ def main(args, max_memories=100000, num_train_iters=25,
         if num_concurrent > 1:
             all_new_memories = []
 
+            set_trace()
             with mp.Pool() as executor:
                 list_of_all_new_memories = executor.map(controller.make_architecture_mp, mp_input)
             

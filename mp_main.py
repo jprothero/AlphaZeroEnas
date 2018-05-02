@@ -95,8 +95,7 @@ def main(args, max_memories=100000, num_train_iters=25,
         }
 
     while True:    
-        mp.set_start_method("forkserver", force=True)
-        mp.set_start_method("spawn", force=True) #forkserver better but doesnt work on colab
+        
         print("Iteration {}".format(cnt))
         controller.eval()
 
@@ -257,6 +256,7 @@ def normal_train(controller, controller_optim, memories, batch_size, num_batches
     controller.eval()
 
 if __name__ == "__main__":
+    mp.set_start_method("spawn", force=True) #forkserver better but doesnt work on colab
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_sims", default=3)
     parser.add_argument("--num_archs", default=1)

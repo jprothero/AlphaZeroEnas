@@ -95,8 +95,8 @@ def main(args, max_memories=100000, num_train_iters=25,
         }
 
     while True:    
-        mp.set_start_method("spawn", force=True) #forkserver better but doesnt work on colab
         mp.set_start_method("forkserver", force=True)
+        mp.set_start_method("spawn", force=True) #forkserver better but doesnt work on colab
         print("Iteration {}".format(cnt))
         controller.eval()
 

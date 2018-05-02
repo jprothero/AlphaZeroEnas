@@ -94,20 +94,27 @@ def main(args, max_memories=100000, num_train_iters=25,
             , "num_sims": num_sims
         }
 
-
-    while True:    
-        mp_input = list([dc(make_arch_hps) for _ in range(num_concurrent)])
+    while True:   
         print("Iteration {}".format(cnt))
+        controller = ENAS(num_fastai_batches=num_fastai_batches)
+        if controller.has_cuda:
+            controller = controller.cuda()
+
+        try:
+            state_dict = torch.load('controller.p')
+            controller.load_state_dict(state_dict)
+            print("Successfully loaded controller")
+        except Exception as e:
+            print("Error loading controller weights: ", e)
+            pass 
         controller.eval()
 
         if num_concurrent > 1:
             all_new_memories = []
 
-            set_trace()
             with mp.Pool() as executor:
-                list_of_all_new_memories = executor.map(controller.make_architecture_mp, mp_input)
-            
-            list_of_all_new_memories = list(list_of_all_new_memories)
+                list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
+                    [dc(make_arch_hps) for _ in range(num_concurrent)]))
 
             # with TPE(macro_max_workers) as executor:
             #     list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 

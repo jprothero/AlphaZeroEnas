@@ -7,7 +7,7 @@ import torch
 
 from ipdb import set_trace
 
-def lr_find_controller(controller, batch_size=512):
+def lr_find_controller(controller, batch_size=32):
     try:
         memories = p.load(open("memories.p", "rb"))
         print(f"Successfully loaded {len(memories)} memories")

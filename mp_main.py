@@ -29,15 +29,19 @@ from random import shuffle
 from concurrent.futures import ProcessPoolExecutor as PPExec
 from concurrent.futures import ThreadPoolExecutor as TPE
 
-def main(args, max_memories=100000, num_train_iters=25,
-        train_batch_size=32, test_batch_size=64): 
-
+def main(args, max_memories=100000, num_train_iters=25): 
     num_sims = int(args.num_sims)
     num_archs = int(args.num_archs)
     num_concurrent = int(args.num_concurrent)
     controller_batch_size = int(args.controller_batch_size)
     min_memories = int(args.min_memories) if args.min_memories is not None else None
     num_fastai_batches = int(args.num_fastai_batches)
+    if min_memories is None:
+        min_memories = num_fastai_batches*controller_batch_size
+
+    arch_train_batch_size = int(args.arch_train_batch_size)
+    arch_test_batch_size = int(args.arch_test_batch_size)
+
     if min_memories is None:
         min_memories = max_memories // 100
 
@@ -52,7 +56,8 @@ def main(args, max_memories=100000, num_train_iters=25,
         memories = []
 
     controller = ENAS(num_fastai_batches=num_fastai_batches)
-    trainloader, testloader = create_data_loaders(train_batch_size, test_batch_size, cuda=controller.has_cuda)
+    trainloader, testloader = create_data_loaders(arch_train_batch_size, arch_test_batch_size,
+         cuda=controller.has_cuda)
     if controller.has_cuda:
         controller = controller.cuda()
 
@@ -74,20 +79,6 @@ def main(args, max_memories=100000, num_train_iters=25,
     except:
         max_score = -1
         max_score_decisions = None
-
-    #idea: what if instead of scaling per parameter we could just scale by number of parameters
-    #so basically the minimum possible parameters would be /1 and the maximum number of parameters would be
-    #/max_params I guess
-    #so the question is how do we figure that out. 
-
-    #a cool benefit of this is that we will be able to scale the score to be between -1 and 1, so we wont have to scrunch anything
-
-    #so we could just get the parameter count
-    #but we need to figure out the min and the max parameter count.
-    #I guess that would be number of filters * num_layers?
-    #we could build that up when we make the trajectory
-    #or what we could do is have a function that makes a model with all of the settings we think will impact the parameters
-    #at the max, and the min, that sounds like a good plan
 
     make_arch_hps = {
             "num_archs": num_archs
@@ -116,12 +107,6 @@ def main(args, max_memories=100000, num_train_iters=25,
                 list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
                     [dc(make_arch_hps) for _ in range(num_concurrent)]))
 
-            # with TPE(macro_max_workers) as executor:
-            #     list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
-            #         [make_arch_hps for _ in range(num_concurrent)]))
-
-            #so the above return [[memories, memories], [memories, memories]]
-            #and what we want is [memories, memories, memories, memories]
             for lst in list_of_all_new_memories:
                 for sub_list in lst:
                     all_new_memories.append(sub_list)
@@ -134,43 +119,11 @@ def main(args, max_memories=100000, num_train_iters=25,
             arch = controller.create_arch_from_decisions(decisions)
             if controller.has_cuda:
                 arch = arch.cuda()
-            arch_optim = optim.Adam(arch.parameters(), lr=5e-4) #5e-5 was good  #5e-3 was the lr find one, but seems too big
+            arch_optim = optim.Adam(arch.parameters(), lr=5e-5) #5e-5 was good  #5e-3 was the lr find one, but seems too big
             arch.train()
 
-            #well the parameter thing doesnt work, it was a good idea but its not that simple I guess
-            #let me think what I want to do. 
-            #I really need to think about Yu's project.
-            #I dont want to come in unprepared. 
-            #probably as a gesture I would like to bring in the captcha thing
-            #and I would like to do some experiments with sequential gan stuff,
-            #i.e. with sound
-            #but for now... 
-            #I can scale by num filters maybe,
-            #basically we want to maximize performance per filter
-            #the other option is that for now we leave out num filters and make it a hyper parameter
-            #that's probably okay too...
-            #but why not get it working how we want now
-            #we want to maximize score/cost
-            #we have score
-            #cost is usually number of parameters
-            #if we could fix that, that would be ideal.... 
-            #but how
-            #it seems like it isn't simple to calculate how many parameters there are.
-            #there are some subtle interactions(i dont know why)
-
             num_parameters = controller.count_parameters(arch)
-            #I dont want it to zero out stuff, so I can probably do like -.1 or something, right?
-            #would normally be 1, but its a kind of label smoothing
-            #oh this is wrong
-            #so it will scale so min params is 0 and max is 1, then we flip we 1 - that
-            #then we add .1?
             scaler = 1 - controller.scale_by_parameter_size(num_parameters) #1 - x because we want 0 to be 1 and 1 to be 0
-            #okay so we get the scaler between 0 and 1
-            #0 is max params, 1 is min params
-            #we want to weigh this, i.e. scale the scaler, to the point we care about
-            #by default it is 100%, the performance of max_params needs to double the performance of min_params
-            #to justify doing it.
-            #this may be too extreme. I think something like 10% would be okay.
             scaler *= .1 #scale from 0-1 to 0-.1
             scaler = 1-scaler #between .9 and 1
 
@@ -242,7 +195,7 @@ def main(args, max_memories=100000, num_train_iters=25,
 
             print("Max score decisions:", max_score_decisions)
 
-        controller.fastai_train(controller, memories, controller_batch_size, min_memories=max_memories//100)
+        controller.fastai_train(controller, memories, controller_batch_size, min_memories=min_memories)
         # normal_train(controller, controller_optim, memories[:128], controller_batch_size)
         torch.save(controller.state_dict(), 'controller.p')
         torch.save(controller.state_dict(), 'controller_backup.p')
@@ -265,20 +218,17 @@ def normal_train(controller, controller_optim, memories, batch_size, num_batches
     controller.memories = None
     controller.eval()
 
-
-#note to self: next step is probably adding a function that takes the best architecture and does a fastai training on it
-#so that we can evaluate how good it is. also we should experiment with more options, more layers, more sims, etc
-#at least for now it appears to be avoiding 0's 
-#can start looking into adding transformer attention net or MCTSnet
 if __name__ == "__main__":
     mp.set_start_method("forkserver", force=True) #forkserver better but doesnt work on colab
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_sims", default=3)
-    parser.add_argument("--num_archs", default=1)
+    parser.add_argument("--num_sims", default=30)
+    parser.add_argument("--num_archs", default=1) #64
     parser.add_argument("--num_concurrent", default=mp.cpu_count())
-    parser.add_argument("--min_memories", default=None)
-    parser.add_argument("--controller_batch_size", default=512)
-    parser.add_argument("--num_fastai_batches", default=8)
+    parser.add_argument("--min_memories", default=None) #None
+    parser.add_argument("--controller_batch_size", default=32) #512
+    parser.add_argument("--num_fastai_batches", default=20) #8
+    parser.add_argument("--arch_train_batch_size", default=32)
+    parser.add_argument("--arch_test_batch_size", default=64)
     args = parser.parse_args()
 
     main(args)

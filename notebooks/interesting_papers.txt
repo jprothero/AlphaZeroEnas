@@ -1,0 +1,2 @@
+Compares neural program synthesis and neural program induction, sota text program synthesis
+https://arxiv.org/pdf/1703.07469.pdf

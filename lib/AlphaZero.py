@@ -13,7 +13,8 @@ class AlphaZero:
             "children": None,
             "parent": None,
             "N": 0,
-            "d": 0
+            "d": 0,
+            "hidden": None
         }
 
         self.turn = 1
@@ -34,6 +35,11 @@ class AlphaZero:
             emb_idx = starting_idx + choice_idx
 
             trajectory.append(emb_idx)
+        
+        if self.curr_node["parent"] is not None:
+            self.hidden = self.curr_node["parent"]["hidden"]
+        else:
+            self.hidden = None
 
         return trajectory
 
@@ -76,7 +82,7 @@ class AlphaZero:
 
     #we should try to calculate as muchas possible outside this class
     #so lets try to only pass what we need
-    def expand(self, policy):
+    def expand(self, policy, hidden):
         self.curr_node["children"] = []
 
         if self.curr_node["parent"] is None:
@@ -91,7 +97,8 @@ class AlphaZero:
                 "P": p,
                 "d": self.curr_node["d"]+1,
                 "children": None,
-                "parent": self.curr_node
+                "parent": self.curr_node,
+                "hidden": hidden
             }
 
             self.curr_node["children"].extend([child])

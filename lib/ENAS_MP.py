@@ -22,11 +22,151 @@ from copy import deepcopy as dc
 from concurrent.futures import ProcessPoolExecutor as PPE
 from concurrent.futures import ThreadPoolExecutor as TPE
 from torch.multiprocessing import Pool, set_start_method, get_context
+from torch.nn.utils import weight_norm as wn
 
 from torch import optim
 
+from .transformer import make_model
+
+#so as of right now it takes a positional embedding
+
+#so it takes a src_vocab, 
+#makes it embedding size of d_model, such as 512
+#the embedding has a positional encoding (somehow)
+#and then that is fed into the encoder
+
+#so it takes whatever the input is and embeddings it into 512 dimensions
+#so for example it will embed a sentence of arbitrary length into 512 dimensions, I tihnk
+#need to test
+
+#so lets see, we want Embeddings to be 
+#Embeddings(num_embeddings, model_dims)
+#then it goes into the positional encoder -> 
+#then that goes into the encoder -> 
+#well... we have a couple different embeddings
+#idk we can kind of bypass the embeddings, 
+#so for example we pass in the set of embeddings and encode their positional 
+#info, so like the trajectory, and run it through the PositionalEncoding
+#then it goes into the encoder like normal
+#now, we need the trajectory to be masked right?
+#because it can be variable length.
+#i.e. we just want 
+
+#so the embedding takes in anything from size vocab and outputs that many samples
+#in (num_in, emb_dims)
+#and the question is, does the encoder take a fixed num_in, or is it batched?
+#I kind of assume that it's fixed
+
+#hmmm... could we alter this to do it over batches?
+#that would be a heck of a lot nicer.
+#but it would be variable length, so that's an issue
+
+#sooo my understanding is that it basically does softmaxs over itself and 
+#does multiplicative adding, like combines it's normal output with it
+#so it effectively learns to focus over certain area of it's output
+#since it is encoding a whole sentence worth, that makes sense.
+#I mean, ideally what we want is probably to look at a whole possible trajectory
+#but again, this locks us into certain things, which is not ideal
+
+#so idk, for my ultimate goals I really want the system to be as dynamic as possible
+#so for that I think I may need to stick to RNN's
+#which is really annoying because I just switched away from them,
+#but I think it's probably necessary. 
+#this way I can have dynamic number of sims, etc
+
+#I really do think that self attention and dilated convolutions are important though.
+#maybe we can do self attention over the recurrence?
+
+#I'm not exactly sure how we could do that. we cant do a fixed length softmax 
+#because again, it's dynamic
+
+#we could generate a logit at each time step and do a softmax over those
+
+#alright, so lets go over what we want to accomplish
+
+#I think one of the might issues with the net right now is the way that 
+#embeddings are handled. 
+
+#we need a set of embeddings, so we can just define a simple nn.Embedding
+
+#thats fine,
+
+#but then as we are going through the network we need those embeddings 
+#to be remembered and to dictate the flow of our network.
+
+#so as of right now I was trying to flatten all of the embeddings, then
+#combine them somehow, such as having a softmax over all of the possible
+#embeddings, and then masking ones that dont make sense
+
+#I feel like its a little flawed
+
+#and the issue with the transformer attention is that it takes fixed length sequences,
+#whereas we have variable length ones,
+#and we have limited
+
+#honestly, we want a dynamic system that is as simple as specifying t and t+1
+#for that I think we need some type of RNN
+#maybe we can do an RNN and add the multi head attention between inner time steps
+#i.e. dynamically generate X logits, which will form the multihead attention,
+#and the input to the lstm will be a softmax + 
+#and maybe we would need to add positional (temporal) encodings?
+
+#so I feel like step one is probably adding back an LSTM
+
+#idea: have different RNNs for different time scales:
+#a trajectory/uct RNN, a readout RNN, and maybe more, such as a meta RNN
+#each of those would be handling different scales of memory and would feed into each other
+#that would probably eliminate the need for backup nets,
+#then we would just enforce the MCTS formula from UCT using the 
+#policy from the simulation RNN, then do a final strong move using the output
+#or maybe the output of the simulation RNN could be the "history" and 
+#that is used as input to a softmax which is the simulation_net
+
+#and then the final history is fed into the readout RNN, which looks at histories,
+#and makes a final prediction.
+#and perhaps we can even have a more macro RNN, that takes the history from the readout_nets
+#and uses that to update an episode wide, or long term memory.
+
+#since in theory all of these RNN's are feeding into each other, maybe we could make them
+#one RNN, and then zero out the output / change the chrono init at certain points
+#need to see.
+
+#also need to investigate memory over different time scales, and
+#consider maybe switching the LSTM from being affine to using dilated convs or something
+
+#I dont think it makes sense wor
+
 # https://stackoverflow.com/questions/8277715/multiprocessing-in-a-pipeline-done-right
 #good multiprocessing/pipeline resource
+
+#idea:
+#what if we did dilated convs, with self attention between recurrence,
+#as a forget gate only lstm with chrono init (janet), and had it look
+#over an entire program (itself)
+#i.e. it could look at a whole program and predict a better one
+#and the performance is measured some way.
+#we maybe could do causal convs with masking or something,
+#and maybe could make the recurrence to trajectories (imagine states)
+
+#interesting idea
+
+#two papers on chrono init
+#https://arxiv.org/pdf/1804.11188.pdf
+#https://arxiv.org/pdf/1804.04849.pdf
+
+#Kanerva Machine another interesting memory resource,
+#but its a bit more complicated, and I think the LSTM thing is simpler for now.
+#https://arxiv.org/pdf/1804.01756v1.pdf
+
+def init_lstm(lstm, hidden_size, T_max):
+    for name, params in lstm.state_dict().items():
+        if "weight" in name:
+            wn(lstm, name)
+            nn.init.xavier_uniform_(params)
+        elif "bias" in name:
+            init = nn.Parameter(torch.log(torch.rand(hidden_size)*(T_max - 1) + 1))
+            params[:hidden_size] = -init.clone()
+            params[hidden_size:2*hidden_size] = init
 
 class LayerNorm(nn.Module):
     def __init__(self, features, eps=1e-6):
@@ -63,7 +203,7 @@ def skip_mask(layer_idx, probas):
 class ENAS(nn.Module):
     def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=4, controller_dims=70, 
             num_controller_layers=5, value_head_dims=70, num_value_layers=5, cuda=torch.cuda.is_available(),
-            num_fastai_batches=8):
+            num_fastai_batches=20):
         super(ENAS, self).__init__()
         self.num_classes = num_classes
         self.R = R
@@ -74,16 +214,7 @@ class ENAS(nn.Module):
         self.num_controller_layers = num_controller_layers
         self.has_cuda = cuda
         
-        self.validating = False
-        
-        controller_layers = []
-        for _ in range(num_controller_layers):
-            controller_layers.extend([
-            nn.Linear(controller_dims, controller_dims)
-            , LayerNorm(controller_dims)
-            , nn.Tanh()])
-
-        self.controller = nn.Sequential(*controller_layers)
+        self.controller = nn.LSTM(controller_dims, controller_dims, num_controller_layers)
 
         self.fake_data = self.create_fake_data(num_fastai_batches)
 
@@ -157,19 +288,6 @@ class ENAS(nn.Module):
             "skips": self.skips
         }
 
-        # self.max_depth = 0
-        # for key, _ in self.decisions.items():
-        #     if key is "filters":
-        #         self.max_depth += 1
-        #     elif key is "skips": 
-        #         self.max_depth += self.num_layers - 2
-        #     else:
-        #         self.max_depth += self.num_layers
-
-        total_embeddings = 0
-        for _, lst in self.decisions.items():
-            total_embeddings += len(lst)
-
         self.decision_list = [
             "filters"
             , "groups"
@@ -180,12 +298,9 @@ class ENAS(nn.Module):
             , "strides"
         ]
 
-        self.total_embeddings = total_embeddings + num_layers
+        self.num_decisions = len(self.decision_list)*self.num_layers - (num_layers - 3)
 
-        self.emb_merge_pre_softmax = nn.Sequential(*[
-                LayerNorm(controller_dims),
-                nn.Linear(controller_dims, self.total_embeddings), 
-            ])
+        init_lstm(self.controller, controller_dims, self.num_decisions)
 
         self.decision_conditions = dict()
 
@@ -224,9 +339,6 @@ class ENAS(nn.Module):
             self.starting_indices.append(starting_idx)
             starting_idx += len(options)
 
-        embeddings.extend([nn.Parameter(torch.rand(controller_dims)-.5) for
-                _ in range(num_layers)])
-
         self.softmaxs = nn.ModuleList(softmaxs)
         self.embeddings = nn.ParameterList(embeddings)
 
@@ -257,79 +369,6 @@ class ENAS(nn.Module):
         condition = self.decision_conditions[decision_name]
         return condition(layer_idx)
 
-    def embedding_from_trajectory(self, az=None, trajectory=None):
-        if trajectory is None:
-            trajectory = az.trajectory
-
-        if len(trajectory) > 0:
-            indices = []
-            weights = dict()
-            seen = dict()
-
-            scaled_one = 1/len(trajectory)
-            for emb_idx in trajectory:
-                try:
-                    seen[emb_idx]
-                except:
-                    seen[emb_idx] = True
-
-                    try:
-                        weights[emb_idx] += scaled_one
-                    except:
-                        weights[emb_idx] = scaled_one
-
-                    indices.append(emb_idx)
-            
-            logits = []
-            embeddings = []
-            weights_list = []
-            for _, idx in enumerate(indices):
-                embeddings.append(self.embeddings[idx].unsqueeze(0))
-                if len(trajectory) == 1:
-                    return embeddings[-1].view(1, 1, -1)
-                logits.append(self.emb_merge_pre_softmax(self.embeddings[idx])[indices].unsqueeze(0))
-                weights_list.append(weights[idx])
-
-            #this part isn't really parallelizable/batchable very easily
-            #so let me think about this for a bit.
-            #what the capsnets offer maybe is an alternative to conv nets
-            #it also is an interesting target for an ENAS, since maybe we can design a better
-            #or more efficient routing system or something.
-            #but it is good to keep in mind that they will probably continue to get more efficient
-            #for what I care about right now, which is trying to get ENAS with alpha zero working,
-            #it doesnt really help. it could maybe help for the mcts gan idea or whatever,
-            #but again capsnets are fairly experimental. we can consider it
-            #but for now I think the trajectory is get_mp working -> get gpu working ->
-            #see if we can make anything interesting / get it to train -> rent a paperspace
-            #and test is more extensively then depending on the performance we can put
-            #the project on the backburner, or do some improvements, such as trying to do
-            #MCTSnet trained with alpha zero
-
-            weights = torch.from_numpy(np.array(weights_list)).float().unsqueeze(-1)
-            if self.has_cuda:
-                weights = weights.cuda()
-            weights = weights.view(1, -1)
-            logits = torch.cat(logits)
-
-            probas = F.softmax(logits, dim=1)
-            probas = weights.mm(probas)
-
-            # probas2 = F.softmax(logits)*weights
-            # probas2 = probas2.sum(0)
-
-            # assert (probas == probas2).all()
-
-            probas /= probas.sum() #normalize
-            probas = probas.view(1, -1)
-            embeddings = torch.cat(embeddings)
-            final_emb = probas.mm(embeddings)
-
-            emb = final_emb.view(1, 1, -1)
-        else:
-            emb = self.first_emb.view(1, 1, -1)
-
-        return emb
-
     def get_values(self, alpha_zeros):
         cont_outs = []
         for az in alpha_zeros:
@@ -350,6 +389,7 @@ class ENAS(nn.Module):
 
     def expand(self, az):
         probas = az.probas
+        hidden = az.hidden
 
         depth = az.curr_node["d"]
         decision_idx = depth % len(self.decision_list)
@@ -359,27 +399,50 @@ class ENAS(nn.Module):
         if self.mask_conditions[decision_name] is not None:
             probas = self.mask_conditions[decision_name](layer_idx, probas)
 
-        az.expand(probas)
+        az.expand(probas, hidden)
 
         return az
 
     def evaluate(self, alpha_zeros):
-        # trajectories = []
         decision_indices = []
 
         decision_indices_lists = [[] for _ in range(len(self.decision_list))]
 
         for i, az in enumerate(alpha_zeros):
-            # trajectories.append(az.trajectory)
             decision_indices_lists[az.decision_idx].append(i)
         
-        # with PPE(self.max_workers) as executor:
-        #     embeddings = list(executor.map(self.embedding_from_trajectory, alpha_zeros))
-        embeddings = [self.embedding_from_trajectory(az) for az in alpha_zeros]
+        if len(alpha_zeros[0].trajectory) > 0:
+            try:
+                embeddings = [self.embeddings[az.trajectory[-1]].unsqueeze(0) for az in alpha_zeros]
+            except:
+                set_trace()
+            
+            embeddings = torch.cat(embeddings).unsqueeze(0)
+        else:
+            embeddings = [self.first_emb.unsqueeze(0) for _ in alpha_zeros]
+            embeddings = torch.cat(embeddings).unsqueeze(0)
+        
+        if alpha_zeros[0].hidden is not None:
+            hs = []
+            cs = []
 
-        embeddings = torch.cat(embeddings)
+            for az in alpha_zeros:
+                hs.append(az.hidden[0])
+                cs.append(az.hidden[1])
 
-        cont_outs = self.controller(embeddings)
+            hs = torch.cat(hs, dim=1)
+            cs = torch.cat(cs, dim=1)
+            hidden = (hs, cs)
+        else:
+            hidden = None
+
+        cont_outs, (hs, cs) = self.controller(embeddings, hidden)
+        cont_outs = cont_outs.squeeze(0)
+        hiddens = [(hs[:, i, :].unsqueeze(1), 
+            cs[:, i, :].unsqueeze(1)) for i in range(hs.shape[1])]
+
+        for az, hidden in zip(alpha_zeros, hiddens):
+            az.hidden = hidden
 
         for i, decision_indices in enumerate(decision_indices_lists):
             if len(decision_indices) > 0: 
@@ -395,7 +458,7 @@ class ENAS(nn.Module):
                     az.probas = az.probas.numpy()
 
         for az, cont_out in zip(alpha_zeros, cont_outs):
-            az.cont_out = cont_out
+            az.cont_out = cont_out.unsqueeze(0)
         
     def simulate(self, az):
         if az.curr_node["d"] > az.max_depth-1: #was >=
@@ -420,6 +483,8 @@ class ENAS(nn.Module):
                 decision_name = self.decision_list[decision_idx]
 
         az.trajectory = trajectory
+        if len(az.trajectory) > 0 and az.trajectory[-1] > len(self.embeddings):
+            set_trace()
         az.decision_idx = decision_idx
 
         return az
@@ -454,8 +519,9 @@ class ENAS(nn.Module):
         })
 
         az.real_trajectory.append(emb_idx)
+        if emb_idx > len(self.embeddings):
+            set_trace()
         az.trajectory = az.real_trajectory
-        az.orig_emb = self.embedding_from_trajectory(az)
 
         if d < az.max_depth-1:
             az.done = False
@@ -473,6 +539,18 @@ class ENAS(nn.Module):
     def make_architecture_mp(self, kwargs):
         # ctx = get_context("forkserver")
         num_archs, num_sims = kwargs["num_archs"], kwargs["num_sims"]
+
+        #so lets see...
+        #right now we are making different alpha zeros so we dont need to worry about
+        #multiprocessing on the same dict, but we can still do batching which in theory helps
+        #so thats fine. 
+
+        #what do we want to do
+        #we want to have one batchable controller,
+        #which does the MCTS flow
+        #so the flow now would be -> UCT select until we reach a leaf node
+        #evaluate (create a value and a policy)
+        #s
         
         alpha_zeros = [AlphaZero(max_depth=self.num_layers*len(self.decision_list)) for _ in range(num_archs)]
 
@@ -481,7 +559,6 @@ class ENAS(nn.Module):
             decisions[name] = []
 
         for az in alpha_zeros:
-            az.orig_emb = self.first_emb
             az.real_trajectory = []
             az.decisions = dc(decisions)
             az.new_memories = []
@@ -494,17 +571,9 @@ class ENAS(nn.Module):
         while True:
             print(f"Choice {i} of {az.max_depth-1 - 5}")
             # start = datetime.datetime.now()
-            for j in range(num_sims):
-                # print(f"Sim {j}")
-                # with TPE(max_workers) as executor:
-                
+            for _ in range(num_sims):
                 alpha_zeros = list(map(self.simulate, alpha_zeros))
 
-                # with ctx.Pool() as executor:
-                #     alpha_zeros = list(executor.map(self.simulate, alpha_zeros))
-
-                # if j > 0:
-                #     set_trace()
                 self.evaluate(alpha_zeros)
 
                 # with TPE(max_workers) as executor:
@@ -577,6 +646,11 @@ class ENAS(nn.Module):
     def get_min_parameters(self):
         pass
 
+    #got score of .484, pretty high
+    #{'filters': [1], 'groups': [3, 3, 3, 3], 'skips': [0, 1], 
+    # 'kernels': [0, 0, 0, 0], 'dilations':[2, 2, 1, 2], 'activations': [2, 2, 2, 2], 
+    # 'strides': [2, 2, 2, 2]}
+
     def train_controller(self, _=None, __=None):
         batch = sample(self.memories, self.batch_size)
 
@@ -585,96 +659,48 @@ class ENAS(nn.Module):
         values = []
         scores = []
 
-        #we could speed this up like by batching the cont_outs
-        #we can try it later
-
-        #the training is supppppeeerrrr slow
-        #it must be because we aren't using batching
-
-        #well lets start adding it
-
-        # device = torch.device("cuda" if self.has_cuda else "cpu")
-
-        embeddings = []
-        # embeddings = torch.zeros(self.batch_size, 1, self.controller_dims, device=device).float()
-        decision_indices = []
-
         value_loss = 0
+
+        search_probas = []
+        values = []
+        scores = []
+
         for i, memory in enumerate(batch):
             trajectory = memory["trajectory"]
             score = memory["score"]
-            sp = memory["search_probas"]
             decision_idx = memory["decision_idx"]
-            decision_indices.append(decision_idx)
+            
+            cont_out, hidden = self.controller(self.first_emb.view(1, 1, -1))
 
-            # if len(trajectory) == 0:
-            #     # cont_out = self.controller(self.first_emb)[0].squeeze(0)
-            #     cont_out = self.controller(self.first_emb)
-            # else:
-            embedding = self.embedding_from_trajectory(trajectory=trajectory)
-            embeddings.append(embedding)
+            for emb_idx in trajectory:
+                emb = self.embeddings[emb_idx].view(1, 1, -1)
+                cont_out, hidden = self.controller(emb, hidden)
+                value = self.value_head(cont_out).view(-1)
+                values.append(value)
+                scores.append(score)
+            logits = self.softmaxs[decision_idx](cont_out).squeeze()
+            probas = F.softmax(logits.unsqueeze(0), dim=1).squeeze()
+            policies.append(probas)
+            search_probas.append(memory["search_probas"])
+                
+        scores = torch.tensor(scores).float()
+        values = torch.cat(values).float()
 
-            # cont_out = self.controller(embedding)
+        if self.has_cuda:
+            scores = scores.cuda()
+            values = values.cuda()
 
-            #this is wrong but at some point we need to do something like this
-            #we need to scale the score by the parameters value if the value is associated with increased
-            #memory or especially compute. for example max groups might always be the best performing but
-            #has much more compute reqs, so we want to minimize that, and similarly for filters we want 
-            #to minimize the number of filters
-            #we can probably come up with a more clever heuristic but for now / by number of filters would be okay.
-            #we would learn the minimal number of filters where the information doesnt collapse basically (in theory)
-            # if self.decision_list[decision_idx] is "filters":
-            #     set_trace()
-            #     score /= self.filters[trajectory[-1]]
+        value_loss = F.mse_loss(values, scores)
 
-            scores.append(score)
-            # if self.training:
-            #     self.value_head.register_hook(print)
-            # value = self.value_head(cont_out.squeeze())
-            # value_loss += F.mse_loss(value, score)
-            # values.append(value)
-            # logits = self.softmaxs[decision_idx](cont_out).squeeze()
-            # probas = F.softmax(logits.unsqueeze(0), dim=1).squeeze()
-
-            # policies.append(probas)
-            search_probas.append(sp)
-        embeddings = torch.cat(embeddings)
         search_probas = torch.cat(search_probas)
-        scores = torch.tensor(scores)
-        
-        # search_probas = Variable(search_probas)
+        policies = torch.cat(policies)
 
         if self.has_cuda:
             search_probas = search_probas.cuda()
-            embeddings = embeddings.cuda()
-            scores = scores.cuda()
-
-        cont_outs = self.controller(embeddings)
-
-        for cont_out, decision_idx in zip(cont_outs, decision_indices):
-            logits = self.softmaxs[decision_idx](cont_out).squeeze()
-            probas = F.softmax(logits.unsqueeze(0), dim=1).squeeze()
-
-            policies.append(probas)
-
-        values = self.value_head(cont_outs).squeeze()
-            
-        # values = torch.cat(values)
-        # # if self.training:
-        # #     values.register_hook(print)
-
-        value_loss = F.mse_loss(values, scores)
-        policies = torch.cat(policies)
+            policies = policies.cuda()
 
         search_probas_loss = -search_probas.unsqueeze(0).mm(torch.log(policies.unsqueeze(-1)))
         search_probas_loss /= self.batch_size
-        #/self.batch_size
-
-        # values += 1
-        # values /= 2
-
-        # scores += 1
-        # scores /= 2
 
         # print("*"*10)
         # print("*"*10)
@@ -684,38 +710,6 @@ class ENAS(nn.Module):
         # print("*"*10)
         # print("*"*10)
 
-        # values.register_hook(print)
-
-        # value_loss = -ones.mm(torch.log(1 - torch.abs(scores - values).unsqueeze(-1)))
-
-        # value_div = 1e6
-        # dist_div = 5e2  #5e3 is good
-
-        # value_loss = -torch.log(1 - torch.abs(scores - values)).sum()
-        # ones = torch.ones(len(scores)).unsqueeze(0)        
-        # value_loss = -ones.mm(torch.log(1 - torch.abs(scores - values)).unsqueeze(-1))
-        # value_loss /= value_div         
-        # value_loss /= 10       
-
-        # policies = policies.unsqueeze(-1)
-        # distance_from_one = 1 - torch.abs(search_probas - policies)
-        # search_probas = search_probas.unsqueeze(0)**2
-        # distance_from_one = distance_from_one.unsqueeze(-1)
-
-        #issue: search_rpboas and policies may be result in negatives
-        #can we tak the derivative of abs?we can try
-        # dist_matching_loss = -(search_probas**2).unsqueeze(0).mm(torch.log(1 - \
-        #  torch.abs(search_probas - policies).unsqueeze(-1)))
-        # dist_matching_loss = -torch.log(1 - \
-        #  torch.abs(search_probas - policies).unsqueeze(-1)).sum()
-        # ones = torch.ones(len(search_probas)).unsqueeze(0)                
-
-        # dist_matching_loss = -ones.mm(torch.log(1 - \
-        #  torch.abs(search_probas - policies).unsqueeze(-1)))
-
-        # dist_matching_loss = F.mse_loss(policies, search_probas)/(self.batch_size*len(policies))
-        
-
         # print("*"*10)
         # print("*"*10)
         # print("*"*10)
@@ -724,25 +718,152 @@ class ENAS(nn.Module):
         # print("*"*10)
         # print("*"*10)
 
-        # dist_matching_loss = -(search_probas**2).unsqueeze(0).mm(torch.log(1 - \
-        #  torch.abs(search_probas - policies).unsqueeze(-1)))
+        if self.has_cuda:
+            print(f"Probas: {search_probas_loss.data.cpu().squeeze().numpy()}, Value {value_loss.data.cpu().numpy()}")
+        else:
+            print(f"Probas: {search_probas_loss.squeeze().data.numpy()}, Value {value_loss.data.numpy()}")
+            
+        total_loss = search_probas_loss + value_loss 
+        # total_loss = dist_matching_loss
+        # total_loss = value_loss
 
-        # dist_matching_loss /= dist_div    
-        # dist_matching_loss /= self.batch_size
-        # dist_matching_loss /= self.batch_size
-        # dist_matching_loss /= self.batch_size
-        # dist_matching_loss /= self.batch_size
-        # dist_matching_loss /= self.batch_size
+        return total_loss
 
-        # dist_matching_loss = F.mse_loss(policies, search_probas)
+    def train_controller_batched(self, _=None, __=None):
+        batch = sample(self.memories, self.batch_size)
 
-        # dist_matching_loss /= len(search_probas) #might be wrong
+        search_probas = []
+        policies = []
+        values = []
+        scores = []
 
-        # search_probas_loss /= self.batch_size
-        # if self.has_cuda:
-        #     print(f"Dist: {dist_matching_loss.data.cpu().numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
-        # else:
-        #     print(f"Dist: {dist_matching_loss.data.numpy()*dist_div}, Value {value_loss.data.numpy()*value_div}")
+        # decision_indices = []
+        trajectory_indices = [[] for _ in range(self.num_decisions)]
+        batch_indices = [[] for _ in range(self.num_decisions)]
+        done_indices = [[] for _ in range(self.num_decisions+1)]
+        not_done_indices = [[] for _ in range(self.num_decisions+1)]
+        done_decision_indices = [[] for _ in range(self.num_decisions+1)]
+        done_search_probas = [[] for _ in range(self.num_decisions+1)]
+
+        value_loss = 0
+        for i, memory in enumerate(batch):
+            trajectory = memory["trajectory"]
+            if len(trajectory) > 0:
+                not_done_indices[0].append(i)
+                for j, emb_idx in enumerate(trajectory):
+                    trajectory_indices[j].append(emb_idx)
+                    batch_indices[j].append(i)
+                    j += 1
+                    not_done_indices[j].append(i)
+                del not_done_indices[j]
+
+                done_indices[j].append(i)
+                done_decision_indices[j].append(memory["decision_idx"])
+                done_search_probas[j].append(memory["search_probas"][0])
+            else:
+                del not_done_indices[0]
+                done_indices[0].append(i)
+                done_decision_indices[0].append(memory["decision_idx"])
+                done_search_probas[0].append(memory["search_probas"][0])
+            #what I want to do is have a list that has all of the done indices
+            #so basically if we have any indices ending on that iteration
+            #we do the search probas loss
+            #so what we need is a list of the done indices for 
+            #each of the iterations through the trajectories
+
+            score = memory["score"]
+            # decision_idx = memory["decision_idx"]
+            # decision_indices.append(decision_idx)
+
+            scores.append(score)
+
+        search_probas = []
+        scores = torch.tensor(scores)
+
+        if self.has_cuda:
+            scores = scores.cuda()
+
+        value_loss = 0
+
+        embeddings = [self.first_emb.unsqueeze(0) for _ in range(self.batch_size)]
+        embeddings = torch.cat(embeddings).unsqueeze(0)
+        if self.has_cuda:
+            embeddings = embeddings.cuda()
+
+        cont_outs, hidden = self.controller(embeddings)
+        cont_outs = cont_outs.squeeze(0)
+
+        def do_search_probas_part(idx):
+            for cont_out, decision_idx in zip(cont_outs[done_indices[idx]], 
+                done_decision_indices[idx]):
+
+                logits = self.softmaxs[decision_idx](cont_out).squeeze()
+                probas = F.softmax(logits.unsqueeze(0), dim=1).squeeze()
+
+                policies.append(probas)
+                search_probas.append(done_search_probas[idx])
+
+        if len(done_indices[0]) > 0:
+            do_search_probas_part(0)
+
+        hidden = (hidden[0][:, not_done_indices[0], :], hidden[1][:, not_done_indices[0], :])
+        done_search_probas = done_search_probas[1:] 
+        done_decision_indices = done_decision_indices[1:] 
+        done_indices = done_indices[1:]
+        not_done_indices = not_done_indices[1:]
+
+        for i, emb_indices in enumerate(trajectory_indices):
+            embeddings = []
+            for idx in emb_indices:
+                embeddings.append(self.embeddings[idx].unsqueeze(0))
+            if len(embeddings) == 0:
+                break
+
+            embeddings = torch.cat(embeddings).unsqueeze(0)
+            if self.has_cuda:
+                embeddings = embeddings.cuda()
+                
+            cont_outs, hidden = self.controller(embeddings, hidden)
+            cont_outs = cont_outs.permute(1, 0, 2)
+            values = self.value_head(cont_outs).squeeze()
+
+            value_loss += F.mse_loss(values, scores[batch_indices[i]].float())
+            if len(done_indices[i]) > 0:
+                do_search_probas_part(i)
+                hidden = (hidden[0][:, not_done_indices[i], :], hidden[1][:, not_done_indices[i], :])
+                if len(hidden[0].shape) < 3:
+                    break
+        value_loss /= self.num_decisions
+
+        set_trace()
+        search_probas = torch.cat(search_probas)
+
+        if self.has_cuda:
+            search_probas = search_probas.cuda()
+
+        policies = torch.cat(policies)
+
+        if self.has_cuda:
+            policies = policies.cuda()
+
+        search_probas_loss = -search_probas.unsqueeze(0).mm(torch.log(policies.unsqueeze(-1)))
+        search_probas_loss /= self.batch_size
+
+        # print("*"*10)
+        # print("*"*10)
+        # print("*"*10)
+        # print("Value mean: ", values.mean())
+        # print("*"*10)
+        # print("*"*10)
+        # print("*"*10)
+
+        # print("*"*10)
+        # print("*"*10)
+        # print("*"*10)
+        # print("Dist diff mean: ", torch.abs(search_probas - policies).mean())
+        # print("*"*10)
+        # print("*"*10)
+        # print("*"*10)
 
         if self.has_cuda:
             print(f"Probas: {search_probas_loss.data.cpu().squeeze().numpy()}, Value {value_loss.data.cpu().numpy()}")
@@ -767,12 +888,13 @@ class ENAS(nn.Module):
         controller_wrapped = FastaiWrapper(model=controller, crit=self.train_controller)
         controller_learner = Learner(data=self.fake_data, models=controller_wrapped)
         controller_learner.crit = controller_wrapped.crit
+        controller_learner.opt_fn = optim.Adam
         controller_learner.model.train()
 
         controller_learner.model.real_forward = controller_learner.model.forward
 
         controller_learner.model.forward = lambda x: x
-        controller_learner.fit(7e-2, epochs, wds=1e-6)
+        controller_learner.fit(4e-2, epochs, wds=1e-5) #was 7e-2
         # controller_learner.fit(2, epochs, cycle_len=num_cycles, use_clr_beta=(10, 13.68, 0.95, 0.85), 
         #     wds=1e-4)
 
@@ -791,7 +913,7 @@ class ENAS(nn.Module):
     #which, in theory it is going to be lower
     #i.e. probably it would find the lowest number of filters that didnt cause the model to fail, which is ideal
 
-    def controller_lr_find(self, controller, memories, batch_size, start_lr=1e-5, end_lr=10):
+    def controller_lr_find(self, controller, memories, batch_size, start_lr=1e-5, end_lr=2):
         self.memories = memories
         self.batch_size = batch_size
         if (len(memories) < batch_size):
@@ -803,6 +925,7 @@ class ENAS(nn.Module):
         arch.model.forward = lambda x: x
 
         learn = Learner(data=self.fake_data, models=arch)
+        learn.opt_fn = optim.Adam
         learn.crit = arch.crit
         learn.model.train()
 

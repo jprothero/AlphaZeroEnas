@@ -247,7 +247,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_sims", default=3)
     parser.add_argument("--num_archs", default=2) #64
-    parser.add_argument("--num_concurrent", default=mp.cpu_count())
+    parser.add_argument("--num_concurrent", default=1)
     parser.add_argument("--min_memories", default=None) #None
     parser.add_argument("--controller_batch_size", default=32) #512
     parser.add_argument("--num_fastai_batches", default=20) #8

@@ -168,6 +168,8 @@ def init_lstm(lstm, hidden_size, T_max):
             params[:hidden_size] = -init.clone()
             params[hidden_size:2*hidden_size] = init
 
+    return lstm
+
 class LayerNorm(nn.Module):
     def __init__(self, features, eps=1e-6):
         super().__init__()
@@ -302,7 +304,7 @@ class ENAS(nn.Module):
         self.num_decisions = len(self.decision_list)*(self.num_layers) - \
             (self.num_layers - 2) - (self.num_layers - 1)
 
-        # init_lstm(self.controller, controller_dims, self.num_decisions)
+        self.controller = init_lstm(self.controller, controller_dims, self.num_decisions)
 
         self.decision_conditions = dict()
 

@@ -305,6 +305,8 @@ class ENAS(nn.Module):
 
         self.controller = init_lstm(self.controller, controller_dims, self.num_decisions)
 
+        self.controller.flatten_parameters()
+
         self.decision_conditions = dict()
 
         for name in self.decision_list:

@@ -302,7 +302,7 @@ class ENAS(nn.Module):
         self.num_decisions = len(self.decision_list)*(self.num_layers) - \
             (self.num_layers - 2) - (self.num_layers - 1)
 
-        init_lstm(self.controller, controller_dims, self.num_decisions)
+        # init_lstm(self.controller, controller_dims, self.num_decisions)
 
         self.decision_conditions = dict()
 

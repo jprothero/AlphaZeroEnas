@@ -215,7 +215,7 @@ class ENAS(nn.Module):
         self.num_controller_layers = num_controller_layers
         self.has_cuda = cuda
         
-        self.controller = nn.utils.weight_norm(nn.LSTM(controller_dims, controller_dims, num_controller_layers), name="weight")
+        self.controller = nn.LSTM(controller_dims, controller_dims, num_controller_layers)
 
         self.fake_data = self.create_fake_data(num_fastai_batches)
 
@@ -445,7 +445,7 @@ class ENAS(nn.Module):
         else:
             hidden = None
 
-        cont_outs, (hs, cs) = wn(self.controller(embeddings, hidden), name="weight")
+        cont_outs, (hs, cs) = self.controller(embeddings, hidden)
         cont_outs = cont_outs.squeeze(0)
         hiddens = [(hs[:, i, :].unsqueeze(1), 
             cs[:, i, :].unsqueeze(1)) for i in range(hs.shape[1])]

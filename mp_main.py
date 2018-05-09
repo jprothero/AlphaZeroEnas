@@ -56,11 +56,12 @@ def main(args, max_memories=100000, num_train_iters=25):
         memories = []
 
     controller = ENAS(num_fastai_batches=num_fastai_batches)
-    trainloader, testloader = create_data_loaders(arch_train_batch_size, arch_test_batch_size,
-         cuda=controller.has_cuda)
+
     if controller.has_cuda:
         controller = controller.cuda()
 
+    trainloader, testloader = create_data_loaders(arch_train_batch_size, arch_test_batch_size,
+         cuda=controller.has_cuda)
     try:
         state_dict = torch.load('controller.p')
         controller.load_state_dict(state_dict)

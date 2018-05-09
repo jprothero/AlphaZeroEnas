@@ -364,6 +364,9 @@ class ENAS(nn.Module):
         self.min_params = self.count_parameters(min_arch)
         self.max_params = self.count_parameters(max_arch)
 
+        del min_arch
+        del max_arch
+
     def scale_by_parameter_size(self, x):
         return (x - self.min_params) / (self.max_params - self.min_params)
 
@@ -469,13 +472,8 @@ class ENAS(nn.Module):
             else:
                 az.do_expand = False
         
-    #okay... so the issue is that we are using d to index...
-    #but,.. hm
-    #ughh this is so hard to debug
-    #so what is the issue, we get depths that are too big, i.e. 
-    #we do too many simulations probably
     def simulate(self, az):
-        trajectory = az.select(self.starting_indices, self.decision_list, self.decisions)
+        trajectory = az.select(self.starting_indices, self.decision_list)
 
         depth = az.curr_node["d"]
 
@@ -536,12 +534,6 @@ class ENAS(nn.Module):
             az.done = False
         else:
             az.done = True
-
-        #hmmm.... can we only return one?
-        #like what if we only return done ones. 
-        #but the issue is how do we differentiate which ones are or are not done
-        #I guess we could probably return done ones here, and not done ones in the next step
-        #then update.
 
         return az
 

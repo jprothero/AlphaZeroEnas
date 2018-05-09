@@ -21,35 +21,27 @@ class AlphaZero:
 
         self.T = 1
 
-    def select(self, starting_indices, decision_list, decisions):
+    def select(self, starting_indices, decision_list):
         trajectory = []
-        #well one argument for moving all of this stuff out of here is that we can 
-        #reduce the need for all these inputs
         d = None
         while self.curr_node["children"] is not None and self.curr_node["d"] < self.max_depth:
-            dee = d = self.curr_node["d"]
+            d = self.curr_node["d"]
             decision_idx = d % len(decision_list)
             starting_idx = starting_indices[decision_idx]
 
             choice_idx = self.curr_node["max_uct_idx"]
 
-            options = len(self.curr_node["children"])
             self.curr_node = self.curr_node["children"][choice_idx]
 
             emb_idx = starting_idx + choice_idx
 
             trajectory.append(emb_idx)
-            # if emb_idx >= 25:
-            #     set_trace()
-            # print(dee)
 
         if self.curr_node["parent"] is not None:
             self.hidden = self.curr_node["parent"]["hidden"]
         else:
             self.hidden = None
 
-        # if len(trajectory) > 0:
-        #     print(emb_idx)
 
         return trajectory
 

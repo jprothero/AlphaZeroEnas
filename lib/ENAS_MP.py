@@ -164,7 +164,7 @@ def init_lstm(lstm, hidden_size, T_max):
             wn(lstm, name)
             nn.init.xavier_uniform_(params)
         elif "bias" in name:
-            init = nn.Parameter(torch.log(torch.rand(hidden_size)*(T_max - 1) + 1))
+            init = torch.log(torch.rand(hidden_size)*(T_max - 1) + 1)
             params[:hidden_size] = -init.clone()
             params[hidden_size:2*hidden_size] = init
 

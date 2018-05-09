@@ -29,6 +29,47 @@ from random import shuffle
 from concurrent.futures import ProcessPoolExecutor as PPExec
 from concurrent.futures import ThreadPoolExecutor as TPE
 
+def load_and_train_controller(make_arch_hps):
+    num_fastai_batches = make_arch_hps["num_fastai_batches"]
+    del make_arch_hps["num_fastai_batches"]
+    controller = ENAS(num_fastai_batches=num_fastai_batches)
+
+    if controller.has_cuda:
+        controller = controller.cuda()
+
+    try:
+        state_dict = torch.load('controller.p')
+        controller.load_state_dict(state_dict)
+        print("Successfully loaded controller")
+    except Exception as e:
+        print("Error loading controller weights: ", e)
+        pass
+
+    controller.eval()
+
+    return controller.make_architecture_mp(make_arch_hps)
+
+def load_controller(num_fastai_batches):
+    controller = ENAS(num_fastai_batches=num_fastai_batches)
+
+    if controller.has_cuda:
+        controller = controller.cuda()
+
+    try:
+        state_dict = torch.load('controller.p')
+        controller.load_state_dict(state_dict)
+        print("Successfully loaded controller")
+    except Exception as e:
+        print("Error loading controller weights: ", e)
+        pass
+
+    controller.eval()
+
+    return controller
+
+def train_controller(controller):
+    return controller.make_architecture_mp(self.hyper_params)
+
 def main(args, max_memories=100000, num_train_iters=25): 
     num_sims = int(args.num_sims)
     num_archs = int(args.num_archs)
@@ -55,22 +96,15 @@ def main(args, max_memories=100000, num_train_iters=25):
         print("Error loading memories: ", e)
         memories = []
 
-    controller = ENAS(num_fastai_batches=num_fastai_batches)
-
-    if controller.has_cuda:
-        controller = controller.cuda()
-
     trainloader, testloader = create_data_loaders(arch_train_batch_size, arch_test_batch_size,
-         cuda=controller.has_cuda)
-    try:
-        state_dict = torch.load('controller.p')
-        controller.load_state_dict(state_dict)
-        print("Successfully loaded controller")
-    except Exception as e:
-        print("Error loading controller weights: ", e)
-        pass
+         cuda=torch.cuda.is_available())
 
     # controller_optim = optim.SGD(params=controller.parameters(), lr=.4, momentum=.9)
+
+    make_arch_hps = {
+        "num_sims": num_sims
+        , "num_archs": num_archs
+    }
 
     cnt = 0
 
@@ -81,32 +115,21 @@ def main(args, max_memories=100000, num_train_iters=25):
         max_score = -1
         max_score_decisions = None
 
-    make_arch_hps = {
-            "num_archs": num_archs
-            , "num_sims": num_sims
-        }
-
     while True:   
         print("Iteration {}".format(cnt))
-        controller = ENAS(num_fastai_batches=num_fastai_batches)
-        if controller.has_cuda:
-            controller = controller.cuda()
-
-        try:
-            state_dict = torch.load('controller.p')
-            controller.load_state_dict(state_dict)
-            print("Successfully loaded controller")
-        except Exception as e:
-            print("Error loading controller weights: ", e)
-            pass 
-        controller.eval()
+        controller = load_controller(num_fastai_batches)
 
         if num_concurrent > 1:
+            controllers = [load_controller(num_fastai_batches) for _ in range(num_concurrent)]
+            controller.hyper_params = dc(make_arch_hps)
             all_new_memories = []
 
+            raise Exception("MP doesnt work because processes share the hidden state of the controller")
+            #just idk how to fix this. they cant share the same LSTM
+            #the most obvious thing is having a different "process" for each controller
             with mp.Pool() as executor:
-                list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
-                    [dc(make_arch_hps) for _ in range(num_concurrent)]))
+                list_of_all_new_memories = list(executor.map(train_controller, 
+                    [controller for controller in controllers]))
 
             for lst in list_of_all_new_memories:
                 for sub_list in lst:
@@ -222,8 +245,8 @@ def normal_train(controller, controller_optim, memories, batch_size, num_batches
 if __name__ == "__main__":
     mp.set_start_method("forkserver", force=True) #forkserver better but doesnt work on colab
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_sims", default=30)
-    parser.add_argument("--num_archs", default=1) #64
+    parser.add_argument("--num_sims", default=3)
+    parser.add_argument("--num_archs", default=2) #64
     parser.add_argument("--num_concurrent", default=mp.cpu_count())
     parser.add_argument("--min_memories", default=None) #None
     parser.add_argument("--controller_batch_size", default=32) #512

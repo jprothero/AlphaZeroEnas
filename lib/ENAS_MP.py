@@ -298,7 +298,9 @@ class ENAS(nn.Module):
             , "strides"
         ]
 
-        self.num_decisions = len(self.decision_list)*self.num_layers - (num_layers - 3)
+        #the number of decisions is 1 + 2 + 4*5
+        self.num_decisions = len(self.decision_list)*(self.num_layers) - \
+            (self.num_layers - 2) - (self.num_layers - 1)
 
         init_lstm(self.controller, controller_dims, self.num_decisions)
 
@@ -383,6 +385,11 @@ class ENAS(nn.Module):
 
         return az
 
+    def go_to_root(self, az):
+        while az.curr_node["parent"] is not None:
+            az.curr_node = az.curr_node["parent"]
+        return az
+
     def backup(self, az):
         az.backup(az.value)
         return az
@@ -399,7 +406,8 @@ class ENAS(nn.Module):
         if self.mask_conditions[decision_name] is not None:
             probas = self.mask_conditions[decision_name](layer_idx, probas)
 
-        az.expand(probas, hidden)
+        if az.do_expand:
+            az.expand(probas, hidden)
 
         return az
 
@@ -412,10 +420,7 @@ class ENAS(nn.Module):
             decision_indices_lists[az.decision_idx].append(i)
         
         if len(alpha_zeros[0].trajectory) > 0:
-            try:
-                embeddings = [self.embeddings[az.trajectory[-1]].unsqueeze(0) for az in alpha_zeros]
-            except:
-                set_trace()
+            embeddings = [self.embeddings[az.trajectory[-1]].unsqueeze(0) for az in alpha_zeros]
             
             embeddings = torch.cat(embeddings).unsqueeze(0)
         else:
@@ -459,14 +464,21 @@ class ENAS(nn.Module):
 
         for az, cont_out in zip(alpha_zeros, cont_outs):
             az.cont_out = cont_out.unsqueeze(0)
+            if az.curr_node["d"] < az.max_depth:
+                az.do_expand = True
+            else:
+                az.do_expand = False
         
+    #okay... so the issue is that we are using d to index...
+    #but,.. hm
+    #ughh this is so hard to debug
+    #so what is the issue, we get depths that are too big, i.e. 
+    #we do too many simulations probably
     def simulate(self, az):
-        if az.curr_node["d"] > az.max_depth-1: #was >=
-            return az
-
-        trajectory = az.select(self.starting_indices, self.decision_list)
+        trajectory = az.select(self.starting_indices, self.decision_list, self.decisions)
 
         depth = az.curr_node["d"]
+
         layer_idx = depth // len(self.decision_list)
         decision_idx = depth % len(self.decision_list)
         decision_name = self.decision_list[decision_idx]
@@ -483,8 +495,6 @@ class ENAS(nn.Module):
                 decision_name = self.decision_list[decision_idx]
 
         az.trajectory = trajectory
-        if len(az.trajectory) > 0 and az.trajectory[-1] > len(self.embeddings):
-            set_trace()
         az.decision_idx = decision_idx
 
         return az
@@ -504,6 +514,7 @@ class ENAS(nn.Module):
     
     def move_choice(self, az):
         d = az.curr_node["d"]
+        
         decision_idx = d % len(self.decision_list)
         starting_idx = self.starting_indices[decision_idx]
         name = self.decision_list[decision_idx]
@@ -519,8 +530,6 @@ class ENAS(nn.Module):
         })
 
         az.real_trajectory.append(emb_idx)
-        if emb_idx > len(self.embeddings):
-            set_trace()
         az.trajectory = az.real_trajectory
 
         if d < az.max_depth-1:
@@ -537,20 +546,7 @@ class ENAS(nn.Module):
         return az
 
     def make_architecture_mp(self, kwargs):
-        # ctx = get_context("forkserver")
         num_archs, num_sims = kwargs["num_archs"], kwargs["num_sims"]
-
-        #so lets see...
-        #right now we are making different alpha zeros so we dont need to worry about
-        #multiprocessing on the same dict, but we can still do batching which in theory helps
-        #so thats fine. 
-
-        #what do we want to do
-        #we want to have one batchable controller,
-        #which does the MCTS flow
-        #so the flow now would be -> UCT select until we reach a leaf node
-        #evaluate (create a value and a policy)
-        #s
         
         alpha_zeros = [AlphaZero(max_depth=self.num_layers*len(self.decision_list)) for _ in range(num_archs)]
 
@@ -569,7 +565,7 @@ class ENAS(nn.Module):
 
         i = 0
         while True:
-            print(f"Choice {i} of {az.max_depth-1 - 5}")
+            print(f"Choice {i} of {self.num_decisions-1}")
             # start = datetime.datetime.now()
             for _ in range(num_sims):
                 alpha_zeros = list(map(self.simulate, alpha_zeros))
@@ -585,8 +581,8 @@ class ENAS(nn.Module):
                 # with TPE(max_workers) as executor:
                 alpha_zeros = list(map(self.backup, alpha_zeros))
 
-                # for az in alpha_zeros:
-                #     assert az.curr_node["parent"] is None
+                for az in alpha_zeros:
+                    assert az.curr_node["parent"] is None
 
                 # with PPE(max_workers) as executor:
                 #     alpha_zeros = list(executor.map(self.reset_to_root, alpha_zeros))

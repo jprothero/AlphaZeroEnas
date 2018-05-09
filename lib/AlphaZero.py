@@ -21,29 +21,41 @@ class AlphaZero:
 
         self.T = 1
 
-    def select(self, starting_indices, decision_list):
+    def select(self, starting_indices, decision_list, decisions):
         trajectory = []
         #well one argument for moving all of this stuff out of here is that we can 
         #reduce the need for all these inputs
+        d = None
         while self.curr_node["children"] is not None and self.curr_node["d"] < self.max_depth:
-            choice_idx = self.curr_node["max_uct_idx"]
-            self.curr_node = self.curr_node["children"][choice_idx]
-
-            d = self.curr_node["d"]
+            dee = d = self.curr_node["d"]
             decision_idx = d % len(decision_list)
             starting_idx = starting_indices[decision_idx]
+
+            choice_idx = self.curr_node["max_uct_idx"]
+
+            options = len(self.curr_node["children"])
+            self.curr_node = self.curr_node["children"][choice_idx]
+
             emb_idx = starting_idx + choice_idx
 
             trajectory.append(emb_idx)
-        
+            # if emb_idx >= 25:
+            #     set_trace()
+            # print(dee)
+
         if self.curr_node["parent"] is not None:
             self.hidden = self.curr_node["parent"]["hidden"]
         else:
             self.hidden = None
 
+        # if len(trajectory) > 0:
+        #     print(emb_idx)
+
         return trajectory
 
     def select_real(self, stochastic=True):
+        if self.curr_node["children"] is None:
+            set_trace()
         visits = np.array([child["N"] for child in self.curr_node["children"]])
 
         if self.T != 0:
@@ -106,15 +118,16 @@ class AlphaZero:
         return self.curr_node
 
     def update_uct(self):
-        self.curr_node["max_uct"] = -1
-        self.curr_node["max_uct_idx"] = -1
-        for i, child in enumerate(self.curr_node["children"]):
-            child["U"] = self.c*child["P"] * \
-                (1 + np.log(self.curr_node["N"])/(1 + child["N"]))
-            child["UCT"] = child["Q"] + child["U"]
-            if child["UCT"] > self.curr_node["max_uct"]:
-                self.curr_node["max_uct"] = child["UCT"]
-                self.curr_node["max_uct_idx"] = i
+        if self.curr_node["children"] is not None:
+            self.curr_node["max_uct"] = -1
+            self.curr_node["max_uct_idx"] = -1
+            for i, child in enumerate(self.curr_node["children"]):
+                child["U"] = self.c*child["P"] * \
+                    (1 + np.log(self.curr_node["N"])/(1 + child["N"]))
+                child["UCT"] = child["Q"] + child["U"]
+                if child["UCT"] > self.curr_node["max_uct"]:
+                    self.curr_node["max_uct"] = child["UCT"]
+                    self.curr_node["max_uct_idx"] = i
 
     def backup(self, value):
         value += 1

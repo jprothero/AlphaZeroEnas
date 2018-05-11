@@ -42,7 +42,6 @@ class AlphaZero:
         else:
             self.hidden = None
 
-
         return trajectory
 
     def select_real(self, stochastic=True):

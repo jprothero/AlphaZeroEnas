@@ -70,13 +70,15 @@ def load_controller(num_fastai_batches):
 def train_controller(controller):
     return controller.make_architecture_mp(self.hyper_params)
 
-def main(args, max_memories=100000, num_train_iters=25): 
+def main(args): 
     num_sims = int(args.num_sims)
     num_archs = int(args.num_archs)
     num_concurrent = int(args.num_concurrent)
     controller_batch_size = int(args.controller_batch_size)
     min_memories = int(args.min_memories) if args.min_memories is not None else None
     num_fastai_batches = int(args.num_fastai_batches)
+    num_train_iters = int(args.num_train_iters)
+    max_memories = int(args.max_memories)
     if min_memories is None:
         min_memories = num_fastai_batches*controller_batch_size
 
@@ -116,20 +118,15 @@ def main(args, max_memories=100000, num_train_iters=25):
         max_score_decisions = None
 
     while True:   
-        print("Iteration {}".format(cnt))
         controller = load_controller(num_fastai_batches)
+        print("Iteration {}".format(cnt))
 
         if num_concurrent > 1:
-            controllers = [load_controller(num_fastai_batches) for _ in range(num_concurrent)]
-            controller.hyper_params = dc(make_arch_hps)
             all_new_memories = []
 
-            raise Exception("MP doesnt work because processes share the hidden state of the controller")
-            #just idk how to fix this. they cant share the same LSTM
-            #the most obvious thing is having a different "process" for each controller
             with mp.Pool() as executor:
-                list_of_all_new_memories = list(executor.map(train_controller, 
-                    [controller for controller in controllers]))
+                list_of_all_new_memories = list(executor.map(controller.make_architecture_mp, 
+                    [make_arch_hps for _ in range(num_concurrent)]))
 
             for lst in list_of_all_new_memories:
                 for sub_list in lst:
@@ -245,14 +242,16 @@ def normal_train(controller, controller_optim, memories, batch_size, num_batches
 if __name__ == "__main__":
     mp.set_start_method("forkserver", force=True) #forkserver better but doesnt work on colab
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_sims", default=3)
-    parser.add_argument("--num_archs", default=2) #64
-    parser.add_argument("--num_concurrent", default=1)
+    parser.add_argument("--num_sims", default=50)
+    parser.add_argument("--num_archs", default=128) #64
+    parser.add_argument("--num_concurrent", default=mp.cpu_count())
     parser.add_argument("--min_memories", default=None) #None
-    parser.add_argument("--controller_batch_size", default=32) #512
-    parser.add_argument("--num_fastai_batches", default=20) #8
-    parser.add_argument("--arch_train_batch_size", default=32)
-    parser.add_argument("--arch_test_batch_size", default=64)
+    parser.add_argument("--controller_batch_size", default=10) #512 or 32
+    parser.add_argument("--num_fastai_batches", default=30) #8
+    parser.add_argument("--arch_train_batch_size", default=10) #32
+    parser.add_argument("--arch_test_batch_size", default=128)
+    parser.add_argument("--num_train_iters", default=70)
+    parser.add_argument("--max_memories", default=10000)
     args = parser.parse_args()
 
     main(args)

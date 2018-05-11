@@ -1,0 +1,42 @@
+What if we maintain a balance between different types of examples.
+
+So for example at each training step we sample different examples from different interquartile ranges for example
+
+So if we have scores which are like 0 0 0 0 0 0 , .2, .3
+
+We would sample Q1: 0 0
+Q2: 0 0 
+Q3: 0 0
+Q4: .2 .3
+
+Hm..
+
+Well the idea is we want it to be as balanced as it can be
+I.e. we want to learn the equal difference between things
+
+So ideally we want to split up the examples somehow
+
+For example, maybe interquartile range or something
+Or some other sampling 
+
+But the goal would be 
+
+if we have 10 0's and two 1's, we only want two zeros and two ones
+
+
+lets say we had 5 1's 2 2's, and 3 3's
+
+We want to randomly sample one from each "bucket" / group
+
+and use those to train
+
+
+Also, for different magnitude inputs, maybe we can scale them to between 0 and 1
+at the start, then at the end denormalize them
+
+
+Ideas: Reinforcement learn struggles the most at the beginning, and the 
+system in alpha zero for example is going to be least effective at the beginning
+
+perhaps we can do multiple random agents at the beginning, and average their parameters
+or something

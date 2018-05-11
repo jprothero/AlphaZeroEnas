@@ -1,0 +1,28 @@
+What if we had a neural network where inherently everything is a graph?
+
+I.e. it accesses each of it's components based on a root to leaf tree structure
+
+So for example we have an input, such as an image
+
+Then we select a component with attention
+
+So basically at each time step we choose the followup component
+
+And what is the ultimate goal
+
+We want to efficiently choose, and reuse components, to solve a given problem
+
+So for example we want to be able to allow the network to dynamically create net components
+
+And then chain together execution of those to get to the ultimate goal.
+
+Now the question is how do we make that differentiable
+
+We could use alpha zero as a strong reinforcement learning training algorithm
+
+I dont think we can train "create or dont create" by making it differentiable
+
+It would be a lot harder at least
+
+
+So the idea would be basically to dynamically create 

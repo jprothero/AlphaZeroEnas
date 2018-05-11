@@ -202,8 +202,8 @@ def skip_mask(layer_idx, probas):
     return probas
 
 class ENAS(nn.Module):
-    def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=4, controller_dims=70, 
-            num_controller_layers=5, value_head_dims=70, num_value_layers=5, cuda=torch.cuda.is_available(),
+    def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=8, controller_dims=32, 
+            num_controller_layers=2, value_head_dims=32, num_value_layers=1, cuda=torch.cuda.is_available(),
             num_fastai_batches=20):
         super(ENAS, self).__init__()
         self.num_classes = num_classes
@@ -236,8 +236,11 @@ class ENAS(nn.Module):
         self.value_head = nn.Sequential(*value_layers)
 
         self.filters = [
+            8,
             16,
             32,
+            64,
+            128,
         ]
 
         self.groups = []
@@ -253,7 +256,9 @@ class ENAS(nn.Module):
 
         self.kernels = [
             1,
+            2,
             3,
+            4,
             5,            
         ]
 
@@ -261,6 +266,8 @@ class ENAS(nn.Module):
             1,
             2,
             4,
+            8,
+            16,
         ]
 
         self.activations = [
@@ -433,13 +440,13 @@ class ENAS(nn.Module):
             embeddings = [self.first_emb.unsqueeze(0) for _ in alpha_zeros]
             embeddings = torch.cat(embeddings).unsqueeze(0)
         
-        if alpha_zeros[0].hidden is not None:
+        if alpha_zeros[0].curr_node["hidden"] is not None:
             hs = []
             cs = []
 
             for az in alpha_zeros:
-                hs.append(az.hidden[0])
-                cs.append(az.hidden[1])
+                hs.append(az.curr_node["hidden"][0])
+                cs.append(az.curr_node["hidden"][1])
 
             hs = torch.cat(hs, dim=1)
             cs = torch.cat(cs, dim=1)
@@ -576,8 +583,8 @@ class ENAS(nn.Module):
                 # with TPE(max_workers) as executor:
                 alpha_zeros = list(map(self.backup, alpha_zeros))
 
-                for az in alpha_zeros:
-                    assert az.curr_node["parent"] is None
+                # for az in alpha_zeros:
+                #     assert az.curr_node["parent"] is None
 
                 # with PPE(max_workers) as executor:
                 #     alpha_zeros = list(executor.map(self.reset_to_root, alpha_zeros))
@@ -885,7 +892,7 @@ class ENAS(nn.Module):
         controller_learner.model.real_forward = controller_learner.model.forward
 
         controller_learner.model.forward = lambda x: x
-        controller_learner.fit(4e-2, epochs, wds=1e-5) #was 7e-2
+        controller_learner.fit(2e-2, epochs, wds=1e-4) #was 7e-2
         # controller_learner.fit(2, epochs, cycle_len=num_cycles, use_clr_beta=(10, 13.68, 0.95, 0.85), 
         #     wds=1e-4)
 

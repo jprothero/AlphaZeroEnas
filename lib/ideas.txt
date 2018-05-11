@@ -1,0 +1,17 @@
+Can we incorporate the parameter sharing they use?
+The issue is it locks the networks to be a certain size at the beginning
+The obvious answer is maybe to have an upper bound on sizes, and 
+then randomly take num_filters random slices from there,
+
+but again it kind of locks the system into certain types of ops,
+
+I doubt you can dynamically switch dilations or groups
+
+
+_____
+
+
+Interesting trick that they use to combine different number of channels for num_filters
+They concat them all on the depth dimension and they use a 1x1 conv to combine them
+Very cool, with that maybe it's worth looking into sharing the computational graph again
+

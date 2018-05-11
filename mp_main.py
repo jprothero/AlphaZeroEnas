@@ -250,11 +250,11 @@ if __name__ == "__main__":
     parser.add_argument("--num_concurrent", default=1)
     parser.add_argument("--min_memories", default=None) #None
     parser.add_argument("--controller_batch_size", default=1) #512 or 32
-    parser.add_argument("--num_fastai_batches", default=20) #8
+    parser.add_argument("--num_fastai_batches", default=30) #8
     parser.add_argument("--arch_train_batch_size", default=10) #32
     parser.add_argument("--arch_test_batch_size", default=40)
     parser.add_argument("--num_train_iters", default=20)
-    parser.add_argument("--max_memories", default=5000)
+    parser.add_argument("--max_memories", default=10000)
     args = parser.parse_args()
 
     main(args)

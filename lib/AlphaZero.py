@@ -142,7 +142,7 @@ class AlphaZero:
         self.curr_node["Q"] = self.curr_node["W"]/self.curr_node["N"]
 
     def add_dirichlet_noise(self, policy):
-        alpha = 10/len(policy)
+        alpha = min(10/len(policy), .8)
         epsilon = 0.25
         nu = np.random.dirichlet([alpha] * len(policy))
         policy = policy*(1-epsilon) + nu*epsilon

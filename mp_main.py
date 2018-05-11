@@ -14,6 +14,10 @@ from torch.autograd import Variable
 import argparse
 from lib.utils import create_data_loaders
 
+import resource
+rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+resource.setrlimit(resource.RLIMIT_NOFILE, (1024*2, rlimit[1]))
+
 # from torch.multiprocessing import Pool, get_context, cpu_count
 import torch.multiprocessing as mp
 
@@ -98,9 +102,6 @@ def main(args):
         print("Error loading memories: ", e)
         memories = []
 
-    trainloader, testloader = create_data_loaders(arch_train_batch_size, arch_test_batch_size,
-         cuda=torch.cuda.is_available())
-
     # controller_optim = optim.SGD(params=controller.parameters(), lr=.4, momentum=.9)
 
     make_arch_hps = {
@@ -117,6 +118,8 @@ def main(args):
         max_score = -1
         max_score_decisions = None
 
+    trainloader, testloader = create_data_loaders(arch_train_batch_size, arch_test_batch_size,
+        cuda=torch.cuda.is_available())
     while True:   
         controller = load_controller(num_fastai_batches)
         print("Iteration {}".format(cnt))
@@ -145,7 +148,7 @@ def main(args):
 
             num_parameters = controller.count_parameters(arch)
             scaler = 1 - controller.scale_by_parameter_size(num_parameters) #1 - x because we want 0 to be 1 and 1 to be 0
-            scaler *= .1 #scale from 0-1 to 0-.1
+            scaler *= .2 #scale from 0-1 to 0-.1
             scaler = 1-scaler #between .9 and 1
 
             for i, (inputs, targets) in enumerate(trainloader):
@@ -242,16 +245,16 @@ def normal_train(controller, controller_optim, memories, batch_size, num_batches
 if __name__ == "__main__":
     mp.set_start_method("forkserver", force=True) #forkserver better but doesnt work on colab
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_sims", default=50)
-    parser.add_argument("--num_archs", default=128) #64
-    parser.add_argument("--num_concurrent", default=mp.cpu_count())
+    parser.add_argument("--num_sims", default=30)
+    parser.add_argument("--num_archs", default=32) #64
+    parser.add_argument("--num_concurrent", default=1)
     parser.add_argument("--min_memories", default=None) #None
-    parser.add_argument("--controller_batch_size", default=10) #512 or 32
-    parser.add_argument("--num_fastai_batches", default=30) #8
+    parser.add_argument("--controller_batch_size", default=1) #512 or 32
+    parser.add_argument("--num_fastai_batches", default=20) #8
     parser.add_argument("--arch_train_batch_size", default=10) #32
-    parser.add_argument("--arch_test_batch_size", default=128)
-    parser.add_argument("--num_train_iters", default=70)
-    parser.add_argument("--max_memories", default=10000)
+    parser.add_argument("--arch_test_batch_size", default=40)
+    parser.add_argument("--num_train_iters", default=20)
+    parser.add_argument("--max_memories", default=5000)
     args = parser.parse_args()
 
     main(args)

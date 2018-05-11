@@ -202,8 +202,8 @@ def skip_mask(layer_idx, probas):
     return probas
 
 class ENAS(nn.Module):
-    def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=3, controller_dims=32, 
-            num_controller_layers=2, value_head_dims=32, num_value_layers=1, cuda=torch.cuda.is_available(),
+    def __init__(self, num_classes=10, R=32, C=32, CH=3, num_layers=3, controller_dims=40, 
+            num_controller_layers=3, value_head_dims=32, num_value_layers=2, cuda=torch.cuda.is_available(),
             num_fastai_batches=20):
         super(ENAS, self).__init__()
         self.num_classes = num_classes
@@ -220,10 +220,10 @@ class ENAS(nn.Module):
         self.fake_data = self.create_fake_data(num_fastai_batches)
 
         value_layers = []
-
-        for _ in range(num_value_layers):
+        for i in range(num_value_layers):
+            in_dims = controller_dims if i == 0 else value_head_dims
             value_layers.extend([
-                nn.Linear(controller_dims, value_head_dims)
+                nn.Linear(in_dims, value_head_dims)
             , LayerNorm(value_head_dims)
             , nn.Tanh()
             ])

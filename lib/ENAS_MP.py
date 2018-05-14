@@ -210,6 +210,7 @@ class ENAS(nn.Module):
         self.R = R
         self.C = C
         self.CH = CH
+        self.flattened_input_size = R*C*CH
         self.num_layers = num_layers
         self.lstm_size = controller_dims
         self.num_controller_layers = num_controller_layers
@@ -240,6 +241,8 @@ class ENAS(nn.Module):
             16,
             32,
         ]
+
+        self.max_filters = self.filters[-1]
 
         self.groups = []
 
@@ -637,10 +640,8 @@ class ENAS(nn.Module):
     def get_min_parameters(self):
         pass
 
-    #got score of .484, pretty high
-    #{'filters': [1], 'groups': [3, 3, 3, 3], 'skips': [0, 1], 
-    # 'kernels': [0, 0, 0, 0], 'dilations':[2, 2, 1, 2], 'activations': [2, 2, 2, 2], 
-    # 'strides': [2, 2, 2, 2]}
+    def calculate_max_layers(target_parameters):
+        return target_parameters/(self.max_filters*self.flattened_input_size)    
 
     def train_controller(self, _=None, __=None):
         batch = sample(self.memories, self.batch_size)
